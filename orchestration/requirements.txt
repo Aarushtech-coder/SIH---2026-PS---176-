@@ -1,3 +1,5 @@
 langgraph
 langchain-anthropic
 pydantic
+anthropic
+pytest
