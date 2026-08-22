@@ -1,7 +1,12 @@
 from datetime import datetime
 import os
 
+from dotenv import load_dotenv
+
 from orchestration.state import TraceEntry, TurnState
+
+
+load_dotenv()
 
 
 INTENTS = {
@@ -20,32 +25,37 @@ AGENTS_BY_INTENT = {
 
 
 def _classify_with_llm(raw_query: str) -> str:
-    api_key = os.environ["ANTHROPIC_API_KEY"]
+    api_key = os.environ["GROQ_API_KEY"]
 
-    from anthropic import Anthropic
+    from groq import Groq
 
-    client = Anthropic(api_key=api_key, timeout=10.0)
-    response = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=16,
+    client = Groq(api_key=api_key, timeout=10.0)
+    model_name = "openai/gpt-oss-120b"
+    response = client.chat.completions.create(
+        model=model_name,
+        max_tokens=200,
         temperature=0,
-        system=(
-            "Classify the user's marine assistance query into exactly one of "
-            "these intents: nearest_pfz, safe_to_sail, weather_tide, "
-            "geofence_check. Return ONLY the intent string and nothing else."
-        ),
-        messages=[{"role": "user", "content": raw_query}],
+        reasoning_effort="low",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Classify the user's marine assistance query into exactly "
+                    "one of these intents: nearest_pfz, safe_to_sail, "
+                    "weather_tide, geofence_check. Return ONLY the intent "
+                    "string and nothing else."
+                ),
+            },
+            {"role": "user", "content": raw_query},
+        ],
     )
 
-    text_parts = [
-        block.text.strip()
-        for block in response.content
-        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
-    ]
-    intent = "".join(text_parts).strip()
-    if intent not in INTENTS:
-        raise ValueError(f"Unexpected planner intent: {intent}")
-    return intent
+    content = response.choices[0].message.content.strip().lower()
+    for intent in INTENTS:
+        if intent in content:
+            return intent
+
+    raise ValueError(f"Unexpected planner intent: {content}")
 
 
 def _classify_with_fallback(raw_query: str) -> str:
@@ -69,7 +79,7 @@ def _classify_with_fallback(raw_query: str) -> str:
 
 
 def run(state: TurnState) -> TurnState:
-    method = "LLM"
+    method = "Groq LLM"
 
     try:
         intent = _classify_with_llm(state.raw_query)
