@@ -69,3 +69,14 @@ def test_out_of_scope_graph(monkeypatch):
     assert state.required_agents == []
     # Static message — no agent nodes, just planner + synthesizer.
     assert len(state.trace) >= 2
+
+
+def test_hindi_query_graph_language(monkeypatch):
+    """Full-graph test: Hindi Devanagari query → language='hi' via Unicode fallback."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    # 'Is it safe to go to sea tomorrow?' in Hindi
+    state = run_query("क्या कल समुद्र में जाना सुरक्षित है?")
+
+    assert state.language == "hi"
+    assert state.final_answer

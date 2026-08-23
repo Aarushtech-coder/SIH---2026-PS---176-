@@ -78,3 +78,13 @@ def test_out_of_scope_no_marine_words(monkeypatch):
 
     assert state.intent == "out_of_scope"
     assert state.required_agents == []
+
+
+def test_hindi_query_language_detection_fallback(monkeypatch):
+    """Hindi Devanagari query should detect language='hi' via the Unicode-range heuristic."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    # 'Is it safe to go to sea tomorrow?' in Hindi
+    state = planner.run(_state("क्या कल समुद्र में जाना सुरक्षित है?"))
+
+    assert state.language == "hi"
