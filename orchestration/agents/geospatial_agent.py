@@ -1,5 +1,6 @@
-from orchestration.state import TurnState, AgentOutput, TraceEntry
-from datetime import datetime
+from datetime import datetime, timezone
+
+from orchestration.state import AgentOutput, TraceEntry, TurnState
 
 
 def run(state: TurnState) -> TurnState:
@@ -7,7 +8,7 @@ def run(state: TurnState) -> TurnState:
     state.agent_outputs["geospatial_agent"] = AgentOutput(
         data={"distance_to_boundary_nm": 0, "note": "mock data"},
         source="MOCK",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(tz=timezone.utc).isoformat(),
     )
     state.trace.append(
         TraceEntry(
@@ -15,7 +16,7 @@ def run(state: TurnState) -> TurnState:
             action="computed mock geofence distance",
             input_summary=state.resolved_query,
             output_summary="mock boundary distance",
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
     )
     return state

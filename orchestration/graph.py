@@ -1,8 +1,9 @@
 from typing import Any
+import uuid
 
 from langgraph.graph import StateGraph
 
-from orchestration import planner, synthesizer
+from orchestration import planner, session_store, synthesizer
 from orchestration.agents import (
     geospatial_agent,
     marine_data_agent,
@@ -10,7 +11,7 @@ from orchestration.agents import (
     risk_agent,
     weather_agent,
 )
-from orchestration.state import TraceEntry, TurnState
+from orchestration.state import TurnState
 
 
 AGENT_RUNNERS = {
@@ -39,12 +40,6 @@ def _dict_to_state(state: dict[str, Any] | TurnState) -> TurnState:
 def _wrap_node(runner):
     def node(state: dict[str, Any]) -> dict[str, Any]:
         turn_state = _dict_to_state(state)
-
-        # The current weather stub references TraceEntry without importing it.
-        # Keep the stub untouched while making graph execution deterministic.
-        if runner is weather_agent.run and not hasattr(weather_agent, "TraceEntry"):
-            weather_agent.TraceEntry = TraceEntry
-
         return _state_to_dict(runner(turn_state))
 
     return node
@@ -117,7 +112,36 @@ graph.set_finish_point("synthesizer")
 app = graph.compile()
 
 
-def run_query(raw_query: str, turn_id: str = "test-turn") -> TurnState:
-    state = TurnState(turn_id=turn_id, raw_query=raw_query)
-    result = app.invoke(_state_to_dict(state))
-    return _dict_to_state(result)
+def run_query(
+    raw_query: str,
+    session_id: str = "default",
+    turn_id: str | None = None,
+) -> TurnState:
+    # Auto-generate a unique turn_id if not supplied.
+    if turn_id is None:
+        turn_id = str(uuid.uuid4())
+
+    # Retrieve the previous turn from the session store for context resolution.
+    previous_turn = session_store.get_previous_turn(session_id)
+
+    # Ask the planner to rewrite the query using prior context when relevant.
+    context = planner.resolve_context(raw_query, previous_turn)
+
+    # Build the initial TurnState with context-resolved values pre-filled so the
+    # planner node inside the graph sees them and will not overwrite resolved_query.
+    state = TurnState(
+        turn_id=turn_id,
+        raw_query=raw_query,
+        resolved_query=context["resolved_query"],
+        user_location=context.get("user_location"),
+        query_date=context.get("query_date"),
+    )
+
+    # Run the full Planner → Agents → Synthesizer graph.
+    result_dict = app.invoke(_state_to_dict(state))
+    result = _dict_to_state(result_dict)
+
+    # Persist the completed turn to the session store before returning.
+    session_store.add_turn(session_id, result)
+
+    return result

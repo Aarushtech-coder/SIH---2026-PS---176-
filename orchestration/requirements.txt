@@ -3,3 +3,5 @@ pydantic
 pytest
 python-dotenv
 groq
+fastapi
+uvicorn[standard]
