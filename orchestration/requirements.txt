@@ -3,3 +3,10 @@ pydantic
 pytest
 python-dotenv
 groq
+shapely
+openai-whisper
+gTTS
+transformers
+sentencepiece
+torch
+torchaudio
