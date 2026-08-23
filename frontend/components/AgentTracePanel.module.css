@@ -1,0 +1,128 @@
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.2rem 1.3rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.9rem;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--good);
+  background: var(--good-soft);
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  text-transform: none;
+}
+
+.live::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.step {
+  position: relative;
+  display: flex;
+  gap: 0.65rem;
+  padding: 0 0 1.05rem 0;
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+.step::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 22px;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--border);
+}
+
+.step:last-child::before {
+  display: none;
+}
+
+.statusIcon {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.step.done .statusIcon {
+  background: var(--good);
+  border-color: var(--good);
+  color: white;
+}
+
+.step.running .statusIcon {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stepBody {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.agentName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.step.pending .agentName {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.summary {
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.step.done .summary {
+  color: var(--text-secondary);
+}

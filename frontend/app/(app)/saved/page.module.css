@@ -1,0 +1,119 @@
+.content {
+  padding: 0 1.75rem 2rem;
+  max-width: 780px;
+}
+
+.clearButton {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--critical);
+  background: var(--critical-soft);
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: none;
+}
+
+.clearButton:hover {
+  filter: brightness(0.96);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 2.2rem 1.75rem;
+}
+
+.empty p {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.4rem;
+}
+
+.empty span {
+  font-size: 0.85rem;
+  max-width: 380px;
+}
+
+.emptyCta {
+  margin-top: 0.6rem;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: white;
+  background: var(--accent);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.rowLink {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  min-width: 0;
+}
+
+.rowMain {
+  min-width: 0;
+}
+
+.rowText {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowTime {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+.rowBadges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.deleteButton {
+  width: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+}
+
+.deleteButton:hover {
+  color: var(--critical);
+  background: var(--critical-soft);
+}

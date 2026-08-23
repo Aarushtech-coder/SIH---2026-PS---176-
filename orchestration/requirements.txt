@@ -1,0 +1,5 @@
+langgraph
+pydantic
+pytest
+python-dotenv
+groq

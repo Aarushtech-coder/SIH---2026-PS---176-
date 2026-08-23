@@ -1,0 +1,37 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.neutral {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.accent {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.good {
+  background: var(--good-soft);
+  color: #096b09;
+}
+
+.warning {
+  background: var(--warning-soft);
+  color: #8a5a06;
+}
+
+.critical {
+  background: var(--critical-soft);
+  color: #a92c2c;
+}

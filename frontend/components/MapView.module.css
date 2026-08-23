@@ -1,0 +1,33 @@
+.wrap {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}
+
+.previewOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  cursor: pointer;
+  background: transparent;
+}
+
+.hint {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  pointer-events: none;
+}

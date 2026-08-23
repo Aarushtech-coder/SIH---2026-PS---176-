@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# Python
+**pycache**/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# OS/editor files
+.DS_Store
+.tmp/
+.vscode/
+*.swp
