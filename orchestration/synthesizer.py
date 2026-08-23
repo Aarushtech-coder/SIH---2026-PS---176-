@@ -117,7 +117,7 @@ def run(state: TurnState) -> TurnState:
         return state
 
     # -----------------------------------------------------------------------
-    # Original four intents — unchanged logic.
+    # Four data-driven intents — LLM-primary, template-string fallback.
     # -----------------------------------------------------------------------
     try:
         sections, citations = _summarize_outputs(state)
@@ -134,9 +134,6 @@ def run(state: TurnState) -> TurnState:
             "geofence_check": "For the maritime boundary check",
         }.get(state.intent, "For this marine assistance request")
 
-        state.final_answer = (
-            f"{intent_intro}, this placeholder response uses mock data only: {details}."
-        )
         state.citations = citations
 
         if state.intent in {"safe_to_sail", "geofence_check"}:
@@ -147,15 +144,88 @@ def run(state: TurnState) -> TurnState:
         else:
             state.disclaimer = None
 
+        # --- Primary path: LLM-generated conversational answer ---
+        llm_used = False
+        try:
+            api_key = os.environ.get("GROQ_API_KEY", "")
+            if not api_key:
+                raise ValueError("GROQ_API_KEY not set")
+
+            from groq import Groq
+
+            # Build a compact context block using only non-null agent outputs.
+            context_lines = []
+            for agent_name, output in state.agent_outputs.items():
+                if output is None:
+                    continue
+                source = output.source or agent_name
+                context_lines.append(
+                    f"- {agent_name} (source: {source}): {output.data}"
+                )
+            context_block = (
+                "\n".join(context_lines)
+                if context_lines
+                else "No agent data was available."
+            )
+
+            system_prompt = (
+                "You are ORCA, a friendly and concise marine safety assistant "
+                "talking directly to a fisherman. "
+                "Using only the data provided below, write a natural conversational "
+                "answer in plain language — avoid raw field names like "
+                "'wind_speed_kmh' or 'vessel_risk_score'; instead say things like "
+                "'winds of about X km/h' or 'the risk is moderately high'. "
+                "IMPORTANT: if any agent's source is 'MOCK', you MUST clearly and "
+                "naturally say within your answer that the data is placeholder/mock "
+                "and not live yet — do NOT silently present mock data as real. "
+                "Keep the answer to 2-4 sentences. "
+                "Do not invent specific numbers beyond what is in the provided data."
+            )
+            user_prompt = (
+                f"Intent: {state.intent}\n"
+                f"Agent data:\n{context_block}\n\n"
+                "Write a short, friendly answer for the fisherman."
+            )
+
+            client = Groq(api_key=api_key, timeout=15.0)
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                max_tokens=300,
+                temperature=0.4,
+                reasoning_effort="low",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            llm_answer = response.choices[0].message.content.strip()
+            if llm_answer:
+                state.final_answer = llm_answer
+                llm_used = True
+
+        except Exception:
+            pass  # Fall through to template fallback.
+
+        # --- Fallback path: original template-string logic ---
+        if not llm_used:
+            state.final_answer = (
+                f"{intent_intro}, this placeholder response uses mock data only: {details}."
+            )
+
         state.trace.append(
             TraceEntry(
                 agent="synthesizer",
                 action="produce_final_answer",
                 input_summary=f"intent={state.intent}; outputs={citations}",
-                output_summary="Produced a placeholder final answer from mock data.",
+                output_summary=(
+                    "Produced final answer via Groq LLM."
+                    if llm_used
+                    else "Used template fallback (LLM unavailable)."
+                ),
                 timestamp=datetime.now(tz=timezone.utc).isoformat(),
             )
         )
+
     except Exception:
         state.final_answer = "Unable to generate a response at this time."
         state.citations = []
