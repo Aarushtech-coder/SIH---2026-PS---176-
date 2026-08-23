@@ -1,5 +1,6 @@
-from orchestration.state import TurnState, AgentOutput, TraceEntry
-from datetime import datetime
+from datetime import datetime, timezone
+
+from orchestration.state import AgentOutput, TraceEntry, TurnState
 
 
 def run(state: TurnState) -> TurnState:
@@ -7,7 +8,7 @@ def run(state: TurnState) -> TurnState:
     state.agent_outputs["ocean_analytics_agent"] = AgentOutput(
         data={"sst_celsius": 0, "chlorophyll": 0, "note": "mock data"},
         source="MOCK",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(tz=timezone.utc).isoformat(),
     )
     state.trace.append(
         TraceEntry(
@@ -15,7 +16,7 @@ def run(state: TurnState) -> TurnState:
             action="fetched mock ocean analytics data",
             input_summary=state.resolved_query,
             output_summary="mock SST/chlorophyll",
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
     )
     return state
