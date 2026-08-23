@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
 import json
 import os
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -80,8 +80,46 @@ _FOLLOWUP_SIGNALS = [
 ]
 
 
-def _classify_with_llm(query_text: str) -> str:
-    """Send query_text to Groq for intent classification."""
+def _detect_language_from_unicode(text: str) -> str:
+    """
+    Guess the dominant script/language from Unicode code-point ranges.
+    Returns an ISO 639-1 code. Defaults to 'en' for Latin-only text.
+    """
+    script_counts: dict[str, int] = {
+        "hi": 0,  # Devanagari  U+0900–U+097F
+        "ta": 0,  # Tamil       U+0B80–U+0BFF
+        "te": 0,  # Telugu      U+0C00–U+0C7F
+        "bn": 0,  # Bengali     U+0980–U+09FF
+        "pa": 0,  # Gurmukhi    U+0A00–U+0A7F
+        "ur": 0,  # Arabic      U+0600–U+06FF
+    }
+    for ch in text:
+        cp = ord(ch)
+        if 0x0900 <= cp <= 0x097F:
+            script_counts["hi"] += 1
+        elif 0x0B80 <= cp <= 0x0BFF:
+            script_counts["ta"] += 1
+        elif 0x0C00 <= cp <= 0x0C7F:
+            script_counts["te"] += 1
+        elif 0x0980 <= cp <= 0x09FF:
+            script_counts["bn"] += 1
+        elif 0x0A00 <= cp <= 0x0A7F:
+            script_counts["pa"] += 1
+        elif 0x0600 <= cp <= 0x06FF:
+            script_counts["ur"] += 1
+
+    best_lang, best_count = "en", 0
+    for lang, count in script_counts.items():
+        if count > best_count:
+            best_lang, best_count = lang, count
+    return best_lang
+
+
+def _classify_with_llm(query_text: str) -> tuple[str, str]:
+    """
+    Send query_text to Groq for intent classification AND language detection.
+    Returns (intent, language) where language is an ISO 639-1 two-letter code.
+    """
     api_key = os.environ["GROQ_API_KEY"]
 
     from groq import Groq
@@ -98,7 +136,7 @@ def _classify_with_llm(query_text: str) -> str:
                 "role": "system",
                 "content": (
                     "Classify the user's query into exactly one of these six intents "
-                    "and return ONLY the intent string, nothing else.\n\n"
+                    "AND detect the language of the raw query text.\n\n"
                     "Intents:\n"
                     "- nearest_pfz: user wants to find the nearest Potential Fishing Zone\n"
                     "- safe_to_sail: user asks whether conditions are safe for sailing/fishing\n"
@@ -109,47 +147,78 @@ def _classify_with_llm(query_text: str) -> str:
                     "(e.g. coral reefs, why fish catch declined, how tsunamis form, "
                     "monsoon fishing patterns)\n"
                     "- out_of_scope: query has no connection to the ocean or marine domain "
-                    "(e.g. cricket scores, jokes, Delhi weather, general trivia)"
+                    "(e.g. cricket scores, jokes, Delhi weather, general trivia)\n\n"
+                    "For language detection: identify the language of the user's raw query "
+                    'text itself (e.g. a Hindi query → "hi", Tamil → "ta", '
+                    'English → "en"). Use ISO 639-1 two-letter codes.\n\n'
+                    "Return ONLY strict JSON with no markdown, no extra text:\n"
+                    '{"intent": "<one of the six intents>", "language": "<ISO 639-1 code>"}'
                 ),
             },
             {"role": "user", "content": query_text},
         ],
     )
 
-    content = response.choices[0].message.content.strip().lower()
-    for intent in INTENTS:
-        if intent in content:
-            return intent
+    raw = response.choices[0].message.content.strip()
+    # Strip markdown code fences if the model wrapped in ```json … ```.
+    raw = raw.removeprefix("```json").removeprefix("```").strip()
+    if raw.endswith("```"):
+        raw = raw[:-3].strip()
 
-    raise ValueError(f"Unexpected planner intent: {content}")
+    parsed = json.loads(raw)
+
+    # Robustly extract intent using the same "contains one of six valid values" check.
+    raw_intent = str(parsed.get("intent", "")).strip().lower()
+    intent = None
+    for candidate in INTENTS:
+        if candidate in raw_intent:
+            intent = candidate
+            break
+    if intent is None:
+        raise ValueError(f"Unexpected planner intent in JSON: {raw_intent}")
+
+    # Robustly extract language; default to "en" if missing/invalid/not 2 letters.
+    raw_lang = str(parsed.get("language", "")).strip().lower()
+    language = raw_lang if (len(raw_lang) == 2 and raw_lang.isalpha()) else "en"
+
+    return intent, language
 
 
-def _classify_with_fallback(query_text: str) -> str:
-    """Keyword-based intent classification used when the LLM is unavailable."""
+def _classify_with_fallback(query_text: str) -> tuple[str, str]:
+    """
+    Keyword-based intent classification used when the LLM is unavailable.
+    Also guesses the query language via Unicode character ranges.
+    Returns (intent, language).
+    """
     query = query_text.lower()
 
-    # Keyword checks for the four specific actionable intents.
+    # --- Intent detection (unchanged logic) ---
     if "pfz" in query or "fishing zone" in query:
-        return "nearest_pfz"
-    if "boundary" in query or "imbl" in query or "border" in query:
-        return "geofence_check"
-    if "tide" in query or "tidal" in query:
-        return "weather_tide"
-    if "safe" in query or "sail" in query:
-        return "safe_to_sail"
-    if "weather" in query and any(
+        intent = "nearest_pfz"
+    elif "boundary" in query or "imbl" in query or "border" in query:
+        intent = "geofence_check"
+    elif "tide" in query or "tidal" in query:
+        intent = "weather_tide"
+    elif "safe" in query or "sail" in query:
+        intent = "safe_to_sail"
+    elif "weather" in query and any(
         w in query for w in ("sea", "ocean", "coast", "marine", "wave")
     ):
-        return "weather_tide"
+        intent = "weather_tide"
+    else:
+        # If no marine-related word appears, treat as out-of-scope.
+        query_words = set(query.split())
+        if not query_words.intersection(_MARINE_KEYWORDS):
+            intent = "out_of_scope"
+        else:
+            # Fallback for queries that mention ocean topics but don't match a specific
+            # actionable intent — general ocean knowledge rather than a safety verdict.
+            intent = "general_ocean_info"
 
-    # If no marine-related word appears, treat as out-of-scope.
-    query_words = set(query.split())
-    if not query_words.intersection(_MARINE_KEYWORDS):
-        return "out_of_scope"
+    # --- Language detection via Unicode script ranges ---
+    language = _detect_language_from_unicode(query_text)
 
-    # Fallback for queries that mention ocean topics but don't match a specific
-    # actionable intent — general ocean knowledge rather than a safety verdict.
-    return "general_ocean_info"
+    return intent, language
 
 
 def resolve_context(raw_query: str, previous_turn: TurnState | None) -> dict:
@@ -247,13 +316,14 @@ def run(state: TurnState) -> TurnState:
     classify_text = state.resolved_query if state.resolved_query else state.raw_query
 
     try:
-        intent = _classify_with_llm(classify_text)
+        intent, language = _classify_with_llm(classify_text)
     except Exception:
         method = "fallback"
-        intent = _classify_with_fallback(classify_text)
+        intent, language = _classify_with_fallback(classify_text)
 
     required_agents = AGENTS_BY_INTENT[intent]
     state.intent = intent
+    state.language = language
     state.required_agents = required_agents
 
     # Only set resolved_query if it hasn't already been populated by resolve_context().
@@ -268,7 +338,8 @@ def run(state: TurnState) -> TurnState:
             action="classify_intent",
             input_summary=classify_text,
             output_summary=(
-                f"Used {method}; chose intent '{intent}' and agents {required_agents}."
+                f"Used {method}; chose intent '{intent}', language '{language}', "
+                f"and agents {required_agents}."
             ),
             timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
