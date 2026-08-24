@@ -1,5 +1,6 @@
+from typing import Any
+
 from pydantic import BaseModel
-from typing import Optional, Any
 
 
 class AgentOutput(BaseModel):
@@ -20,13 +21,14 @@ class TurnState(BaseModel):
     turn_id: str
     raw_query: str
     resolved_query: str = ""
-    user_location: Optional[dict] = None
-    query_date: Optional[str] = None
+    user_location: dict | None = None
+    query_date: str | None = None
 
     intent: str = ""
+    language: str = "en"
     required_agents: list[str] = []
 
-    agent_outputs: dict[str, Optional[AgentOutput]] = {
+    agent_outputs: dict[str, AgentOutput | None] = {
         "weather_agent": None,
         "marine_data_agent": None,
         "ocean_analytics_agent": None,
@@ -36,10 +38,10 @@ class TurnState(BaseModel):
 
     trace: list[TraceEntry] = []
 
-    final_answer: Optional[str] = None
+    final_answer: str | None = None
     citations: list[str] = []
-    disclaimer: Optional[str] = None
-    map_data: Optional[dict] = None
+    disclaimer: str | None = None
+    map_data: dict | None = None
 
 
 class Session(BaseModel):
