@@ -178,7 +178,9 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         lon: Longitude of the query point.
 
     Returns:
-        A dict matching the weather_agent contract schema.
+        A tuple of (data, keyword_match_failed).
+        data: A dict matching the weather_agent contract schema.
+        keyword_match_failed: True if a cyclone bulletin is active but did not match keywords.
 
     Raises:
         Exception: If both today's and yesterday's files fail, or if
@@ -217,13 +219,15 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
             data["forecast_valid_until"] = forecast_end.isoformat()
 
             # Cyclone alert — separate source, best-effort
+            match_failed = False
             try:
-                data["cyclone_alert"] = _check_cyclone_alert()
+                alert, match_failed = _check_cyclone_alert()
+                data["cyclone_alert"] = alert
             except Exception as cyc_err:
                 logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
                 data["cyclone_alert"] = None
 
-            return data
+            return data, match_failed
 
         except Exception as e:
             last_error = e
@@ -243,17 +247,22 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 # Cyclone alert
 # ---------------------------------------------------------------------------
 
-def _check_cyclone_alert() -> str | None:
+def _check_cyclone_alert() -> tuple[str | None, bool]:
     """Check RSMC New Delhi for active cyclone bulletins.
 
     Fetches the RSMC homepage and looks for bulletin PDF links.
     If all links contain "No_Cyclone" or "no_cyclone" in the filename,
-    returns None (no active cyclone).
-    If an active bulletin is found, returns "Yellow" as a conservative
-    alert level (detailed parsing of PDF content is Phase 2).
+    returns (None, False) (no active cyclone).
+
+    NOTE: The cyclone severity mapping below is a keyword heuristic checked
+    against the bulletin filename/URL text, not a structural parse of the
+    actual PDF bulletin content. This is a documented approximation, not
+    an official IMD severity data feed.
 
     Returns:
-        "Yellow", "Orange", "Red", or None.
+        A tuple of (alert_level, keyword_match_failed).
+        alert_level: "Yellow", "Orange", "Red", or None.
+        keyword_match_failed: True if a bulletin is active but matches no keywords.
     """
     req = urllib.request.Request(
         RSMC_URL,
@@ -268,7 +277,7 @@ def _check_cyclone_alert() -> str | None:
 
     if not pdf_links:
         # No PDF links found at all — assume no active cyclone
-        return None
+        return None, False
 
     # Check if ALL PDF links are "No Cyclone" placeholders
     active_bulletins = []
@@ -285,11 +294,37 @@ def _check_cyclone_alert() -> str | None:
         active_bulletins.append(link)
 
     if not active_bulletins:
-        return None
+        return None, False
 
-    # An active cyclone bulletin exists — conservative alert
-    # Phase 2: parse the PDF to determine Yellow/Orange/Red
-    return "Yellow"
+    # Define strict full phrases for matching
+    red_phrases = ["very severe cyclonic storm", "extremely severe cyclonic storm", "super cyclonic storm"]
+    orange_phrases = ["severe cyclonic storm", "cyclonic storm"]
+    yellow_phrases = ["deep depression", "depression"]
+
+    has_red = False
+    has_orange = False
+    has_yellow = False
+
+    for bulletin in active_bulletins:
+        name = bulletin.lower()
+        if any(phrase in name for phrase in red_phrases):
+            has_red = True
+        elif any(phrase in name for phrase in orange_phrases):
+            has_orange = True
+        elif any(phrase in name for phrase in yellow_phrases):
+            has_yellow = True
+
+    # Return based on precedence: Red -> Orange -> Yellow -> Default (Yellow, match failed)
+    if has_red:
+        return "Red", False
+    elif has_orange:
+        return "Orange", False
+    elif has_yellow:
+        return "Yellow", False
+    else:
+        # Active bulletin found but none of the strict phrases matched.
+        # Default to Yellow for safety, flag keyword_match_failed as True.
+        return "Yellow", True
 
 
 # ---------------------------------------------------------------------------
@@ -357,15 +392,20 @@ def run(state: TurnState) -> TurnState:
         lon = state.user_location.get("lon", DEFAULT_LON)
 
     try:
-        data = _fetch_all_weather_data(lat, lon)
+        data, match_failed = _fetch_all_weather_data(lat, lon)
         source = "INCOIS-OSF"
-        action = "fetched live weather data from INCOIS THREDDS WMS"
+        if match_failed:
+            action = "cyclone alert: keyword match failed, defaulted to Yellow"
+        else:
+            action = "fetched live weather data from INCOIS THREDDS WMS"
         output_summary = (
             f"wind={data['wind_speed_kmh']}km/h, "
             f"waves={data['wave_height_m']}m, "
             f"swell={data['swell_height_m']}m, "
             f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
         )
+        if match_failed:
+            output_summary += " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
 
     except Exception as e:
         logger.warning(
