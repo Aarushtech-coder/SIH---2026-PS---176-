@@ -38,10 +38,10 @@ PFZ_WFS_URL = (
 
 REQUEST_TIMEOUT_SECONDS = 15
 
-# Standard PFZ advisory validity window in days.  INCOIS PFZ advisories are
-# generally valid for 3-5 days after publication; we use 5 as the upper bound
-# so zones don't disappear prematurely from the UI.
-ADVISORY_VALIDITY_DAYS = 5
+# Standard PFZ advisory validity window in days. INCOIS PFZ advisories are
+# restricted to a 24-hour (1 day) validity window because ocean features 
+# (thermal fronts/currents) shift dynamically.
+ADVISORY_VALIDITY_DAYS = 1
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +156,11 @@ def _transform_feature_to_zone(feature: dict, index: int) -> dict:
         "latitude": lat,
         "longitude": lon,
         # --- Phase 2 fields: not available from WFS, sentinel values ---
+        # NOTE: distance_from_coast_km=-1.0, direction_from_landing_centre="N/A", and
+        # depth_range_m="N/A" are Phase 1 sentinels because the WFS pfzlines endpoint
+        # does not carry these fields (they only exist in the prose text advisory).
+        # Downstream consumers (e.g. risk_agent and Synthesizer) must NOT treat them
+        # as real values, and should check for these sentinels to skip calculations/display.
         "distance_from_coast_km": -1.0,
         "direction_from_landing_centre": "N/A",
         "depth_range_m": "N/A",
