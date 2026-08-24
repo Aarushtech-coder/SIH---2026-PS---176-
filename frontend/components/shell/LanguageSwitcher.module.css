@@ -1,0 +1,14 @@
+.select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.select:hover {
+  border-color: var(--border-strong);
+}

@@ -4,22 +4,30 @@ import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Badge, VerdictBadge } from "@/components/ui/Badge";
 import { useOrca } from "@/lib/store";
-import { INTENT_LABELS } from "@/lib/format";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 import { IconTrash, IconBookmark } from "@/components/icons/Icons";
 import styles from "./page.module.css";
 
+const INTENT_KEYS = {
+  nearest_pfz: "intent.nearest_pfz",
+  safe_to_sail: "intent.safe_to_sail",
+  geofence_check: "intent.geofence_check",
+  weather_tide: "intent.weather_tide",
+};
+
 export default function SavedQueriesPage() {
   const { savedQueries, clearSavedQueries, removeSavedQuery } = useOrca();
+  const { t } = useLocale();
 
   return (
     <>
       <Topbar
-        title="Saved Queries"
-        subtitle="Your question history with ORCA"
+        title={t("nav.saved")}
+        subtitle={t("saved.subtitle")}
         right={
           savedQueries.length > 0 && (
             <button type="button" className={styles.clearButton} onClick={clearSavedQueries}>
-              Clear all
+              {t("saved.clearAll")}
             </button>
           )
         }
@@ -29,10 +37,10 @@ export default function SavedQueriesPage() {
         {savedQueries.length === 0 ? (
           <div className={styles.empty}>
             <IconBookmark size={26} />
-            <p>No saved queries yet</p>
-            <span>Questions you ask ORCA will show up here so you can revisit them.</span>
+            <p>{t("saved.emptyTitle")}</p>
+            <span>{t("saved.emptyHint")}</span>
             <Link href="/chat" className={styles.emptyCta}>
-              Ask a question
+              {t("saved.askQuestion")}
             </Link>
           </div>
         ) : (
@@ -45,7 +53,7 @@ export default function SavedQueriesPage() {
                     <div className={styles.rowTime}>{new Date(q.timestamp).toLocaleString()}</div>
                   </div>
                   <div className={styles.rowBadges}>
-                    <Badge>{INTENT_LABELS[q.intent] ?? q.intent}</Badge>
+                    <Badge>{t(INTENT_KEYS[q.intent] ?? q.intent)}</Badge>
                     {q.verdict && <VerdictBadge verdict={q.verdict} />}
                   </div>
                 </Link>

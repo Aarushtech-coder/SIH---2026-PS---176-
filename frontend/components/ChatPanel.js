@@ -4,14 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./ChatPanel.module.css";
 import AnswerCard from "./AnswerCard";
 import { IconSend, IconMic } from "@/components/icons/Icons";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 
-const SUGGESTIONS = [
-  "Is it safe to go to sea tomorrow?",
-  "Where's the nearest fishing zone?",
-  "Am I close to the maritime boundary?",
-];
+const SUGGESTION_KEYS = ["suggestion.safe", "suggestion.nearestZone", "suggestion.boundary"];
 
 export default function ChatPanel({ messages, onSend, loading }) {
+  const { t } = useLocale();
   const [input, setInput] = useState("");
   const listRef = useRef(null);
 
@@ -32,12 +30,12 @@ export default function ChatPanel({ messages, onSend, loading }) {
       <div className={styles.messages} ref={listRef}>
         {messages.length === 0 && (
           <div className={styles.empty}>
-            <p className={styles.emptyTitle}>Ask ORCA about conditions at sea</p>
-            <p className={styles.emptyHint}>Fishing zones, sailing safety, weather, or boundary status.</p>
+            <p className={styles.emptyTitle}>{t("chat.subtitle")}</p>
+            <p className={styles.emptyHint}>{t("chat.emptyHint")}</p>
             <div className={styles.suggestions}>
-              {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" onClick={() => onSend(s)} disabled={loading}>
-                  {s}
+              {SUGGESTION_KEYS.map((key) => (
+                <button key={key} type="button" onClick={() => onSend(t(key))} disabled={loading}>
+                  {t(key)}
                 </button>
               ))}
             </div>
@@ -72,7 +70,7 @@ export default function ChatPanel({ messages, onSend, loading }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask ORCA..."
+          placeholder={t("chat.placeholder")}
           disabled={loading}
         />
         <button type="submit" className={styles.sendButton} disabled={loading || !input.trim()}>
