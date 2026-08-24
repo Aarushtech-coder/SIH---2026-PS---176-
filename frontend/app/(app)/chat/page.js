@@ -11,7 +11,7 @@ import { useLocale } from "@/lib/i18n/LocaleContext";
 import styles from "./page.module.css";
 
 function ChatPageInner() {
-  const { messages, trace, pipeline, mapData, loading, runQuery } = useOrca();
+  const { messages, trace, pipeline, mapData, loading, runQuery, runVoiceQuery } = useOrca();
   const { t } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -31,7 +31,7 @@ function ChatPageInner() {
     <>
       <Topbar title={t("nav.chat")} subtitle={t("chat.subtitle")} />
       <div className={styles.content}>
-        <ChatPanel messages={messages} onSend={runQuery} loading={loading} />
+        <ChatPanel messages={messages} onSend={runQuery} onSendVoice={runVoiceQuery} loading={loading} />
         <div className={styles.side}>
           <AgentTracePanel pipeline={pipeline} trace={trace} loading={loading} />
           <MapPreviewCard mapData={mapData} />

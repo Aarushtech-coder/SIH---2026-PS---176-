@@ -45,9 +45,25 @@ function buildTurnState(rawQuery, scenario) {
   };
 }
 
-// Calls the real orchestration backend and replays its trace entries with
-// small delays, so the reasoning panel still animates step-by-step instead
-// of popping in all at once (matches the mock's UX).
+async function parseErrorResponse(response) {
+  const errorBody = await response.json().catch(() => ({}));
+  return (
+    errorBody?.detail?.message || errorBody?.error || `Request failed with status ${response.status}`
+  );
+}
+
+// Shared by both the text and voice live paths: replays a TurnState's trace
+// entries with small delays so the reasoning panel animates step-by-step
+// instead of popping in all at once (matches the mock's UX).
+async function replayLiveResponse(turnState, { onTrace, onPlan } = {}) {
+  onPlan?.(["planner", ...(turnState.required_agents || []), "synthesizer"]);
+  for (const entry of turnState.trace || []) {
+    onTrace?.(entry);
+    await delay(350);
+  }
+  return turnState;
+}
+
 async function sendQueryLive(rawQuery, { onTrace, onPlan } = {}) {
   const response = await fetch(`${API_BASE_URL}/query`, {
     method: "POST",
@@ -56,27 +72,32 @@ async function sendQueryLive(rawQuery, { onTrace, onPlan } = {}) {
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    const message =
-      errorBody?.detail?.message ||
-      errorBody?.error ||
-      `Request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(await parseErrorResponse(response));
   }
 
   const turnState = await response.json();
+  return replayLiveResponse(turnState, { onTrace, onPlan });
+}
 
-  onPlan?.(["planner", ...(turnState.required_agents || []), "synthesizer"]);
+// Uploads a recorded audio clip to the voice endpoint. Contract (see the
+// message to Role 4): POST /voice-query, multipart/form-data with an
+// "audio" field, response is a TurnState JSON plus a top-level
+// transcribed_text field so the UI can show what was heard.
+export async function sendVoiceQuery(audioBlob, { onTrace, onPlan } = {}) {
+  const formData = new FormData();
+  formData.append("audio", audioBlob, "query.webm");
 
-  const fullTrace = turnState.trace || [];
-  const replayedTrace = [];
-  for (const entry of fullTrace) {
-    replayedTrace.push(entry);
-    onTrace?.(entry);
-    await delay(350);
+  const response = await fetch(`${API_BASE_URL}/voice-query`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorResponse(response));
   }
 
-  return turnState;
+  const turnState = await response.json();
+  return replayLiveResponse(turnState, { onTrace, onPlan });
 }
 
 // Resolves with the final TurnState. Calls onTrace(entry) as each step of
