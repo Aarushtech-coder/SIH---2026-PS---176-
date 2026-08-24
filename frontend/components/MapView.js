@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Circle 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapView.module.css";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 
 // Leaflet's default marker icon paths are resolved relative to the bundler
 // output and break under Next.js -- point them at the CDN copies instead.
@@ -26,6 +27,7 @@ const COLOR = {
 };
 
 export default function MapView({ mapData, layers, visibility = {}, interactive = true }) {
+  const { t } = useLocale();
   const center = mapData?.center ?? layers?.center ?? DEFAULT_CENTER;
   const zoom = mapData?.zoom ?? layers?.zoom ?? 9;
 
@@ -82,7 +84,7 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
 
         {layers?.landingCentre && (
           <Marker position={[layers.landingCentre.lat, layers.landingCentre.lon]} icon={pinIcon}>
-            <Popup>Landing centre</Popup>
+            <Popup>{t("map.landingCentre")}</Popup>
           </Marker>
         )}
 
@@ -94,7 +96,7 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
 
         {mapData?.current_position && (
           <Marker position={[mapData.current_position.lat, mapData.current_position.lon]} icon={pinIcon}>
-            <Popup>Current position</Popup>
+            <Popup>{t("map.currentPosition")}</Popup>
           </Marker>
         )}
 
@@ -105,7 +107,7 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
               radius={7}
               pathOptions={{ color: COLOR.hazard, fillOpacity: 0.75, weight: 2 }}
             >
-              <Popup>Nearest IMBL point</Popup>
+              <Popup>{t("map.nearestBoundaryPoint")}</Popup>
             </CircleMarker>
             {mapData.current_position && (
               <Polyline
@@ -121,7 +123,7 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
       </MapContainer>
 
       {!interactive && <div className={styles.previewOverlay} />}
-      {!mapData && !layers && <div className={styles.hint}>No map data for this query.</div>}
+      {!mapData && !layers && <div className={styles.hint}>{t("map.noData")}</div>}
     </div>
   );
 }

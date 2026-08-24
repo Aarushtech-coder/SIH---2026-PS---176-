@@ -7,10 +7,12 @@ import ChatPanel from "@/components/ChatPanel";
 import AgentTracePanel from "@/components/AgentTracePanel";
 import MapPreviewCard from "@/components/MapPreviewCard";
 import { useOrca } from "@/lib/store";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 import styles from "./page.module.css";
 
 function ChatPageInner() {
   const { messages, trace, pipeline, mapData, loading, runQuery } = useOrca();
+  const { t } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const handledParam = useRef(null);
@@ -27,7 +29,7 @@ function ChatPageInner() {
 
   return (
     <>
-      <Topbar title="Chat Assistant" subtitle="Ask ORCA about conditions at sea" />
+      <Topbar title={t("nav.chat")} subtitle={t("chat.subtitle")} />
       <div className={styles.content}>
         <ChatPanel messages={messages} onSend={runQuery} loading={loading} />
         <div className={styles.side}>

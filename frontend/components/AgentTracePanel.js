@@ -1,38 +1,44 @@
+"use client";
+
 import styles from "./AgentTracePanel.module.css";
 import { IconCheck, IconSpinner } from "@/components/icons/Icons";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 
-const AGENT_LABELS = {
-  planner: "Planner Agent",
-  weather_agent: "Weather Agent",
-  marine_data_agent: "Marine Data Agent",
-  ocean_analytics_agent: "Ocean Analytics Agent",
-  risk_agent: "Risk Assessment Agent",
-  geospatial_agent: "Geospatial Agent",
-  synthesizer: "Synthesizer Agent",
+const AGENT_KEYS = {
+  planner: "agent.planner",
+  weather_agent: "agent.weather_agent",
+  marine_data_agent: "agent.marine_data_agent",
+  ocean_analytics_agent: "agent.ocean_analytics_agent",
+  risk_agent: "agent.risk_agent",
+  geospatial_agent: "agent.geospatial_agent",
+  synthesizer: "agent.synthesizer",
 };
 
-const PENDING_HINTS = {
-  planner: "Waiting to classify query",
-  weather_agent: "Waiting to fetch forecast",
-  marine_data_agent: "Waiting to fetch PFZ advisory",
-  ocean_analytics_agent: "Waiting to fetch ocean data",
-  risk_agent: "Waiting to assess risk",
-  geospatial_agent: "Waiting to check boundary",
-  synthesizer: "Waiting to compose final answer",
+const PENDING_KEYS = {
+  planner: "pending.planner",
+  weather_agent: "pending.weather_agent",
+  marine_data_agent: "pending.marine_data_agent",
+  ocean_analytics_agent: "pending.ocean_analytics_agent",
+  risk_agent: "pending.risk_agent",
+  geospatial_agent: "pending.geospatial_agent",
+  synthesizer: "pending.synthesizer",
 };
 
 // Renders the planned agent pipeline for the current turn, deriving each
 // step's status from how many trace entries have landed so far -- so the
 // list fills in live as the (simulated) multi-agent run progresses.
 export default function AgentTracePanel({ pipeline, trace, loading }) {
+  const { t } = useLocale();
   const hasRun = pipeline.length > 0;
 
   return (
     <section className={styles.panel}>
-      <h2>Agent Activity {hasRun && loading && <span className={styles.live}>Live</span>}</h2>
+      <h2>
+        {t("trace.title")} {hasRun && loading && <span className={styles.live}>{t("trace.live")}</span>}
+      </h2>
 
       {!hasRun ? (
-        <p className={styles.empty}>Ask a question to watch the multi-agent pipeline run here.</p>
+        <p className={styles.empty}>{t("trace.empty")}</p>
       ) : (
         <ol className={styles.steps}>
           {pipeline.map((agent, i) => {
@@ -46,9 +52,9 @@ export default function AgentTracePanel({ pipeline, trace, loading }) {
                   {status === "running" && <IconSpinner size={13} />}
                 </span>
                 <div className={styles.stepBody}>
-                  <span className={styles.agentName}>{AGENT_LABELS[agent] ?? agent}</span>
+                  <span className={styles.agentName}>{t(AGENT_KEYS[agent] ?? agent)}</span>
                   <p className={styles.summary}>
-                    {entry ? entry.output_summary : status === "running" ? "Working..." : PENDING_HINTS[agent]}
+                    {entry ? entry.output_summary : status === "running" ? t("trace.working") : t(PENDING_KEYS[agent])}
                   </p>
                 </div>
               </li>
