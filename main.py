@@ -12,14 +12,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
+import tempfile
 import traceback
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestration.graph import run_query
+from orchestration.localization_pipeline import SpeechToText
 
 # ---------------------------------------------------------------------------
 # App instance
@@ -56,6 +59,21 @@ class QueryRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Whisper model — loaded lazily on first voice request, then cached, so
+# `uvicorn --reload` startup and text-only requests aren't slowed down by a
+# ~1.5GB model load nobody asked for yet.
+# ---------------------------------------------------------------------------
+_stt: SpeechToText | None = None
+
+
+def _get_stt() -> SpeechToText:
+    global _stt
+    if _stt is None:
+        _stt = SpeechToText()
+    return _stt
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -68,6 +86,7 @@ async def root():
         "endpoints": {
             "health": "GET /health",
             "query": "POST /query",
+            "voice_query": "POST /voice-query",
         },
     }
 
@@ -120,3 +139,61 @@ async def query(request: QueryRequest):
 
     # Include session_id in the response so the frontend can persist and reuse it.
     return {**result_data, "session_id": session_id}
+
+
+@app.post("/voice-query", summary="Run the ORCA pipeline from a voice recording")
+async def voice_query(audio: UploadFile = File(...), session_id: str | None = Form(None)):
+    """
+    Accepts a recorded audio clip in any language Whisper supports, transcribes
+    it, then runs the same Planner -> Agents -> Synthesizer pipeline as
+    POST /query. No separate translation step is needed here: planner.py
+    already detects the transcribed text's language and synthesizer.py
+    already replies in it.
+    """
+    suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(await audio.read())
+        tmp_path = tmp.name
+
+    try:
+        try:
+            _, transcribed_text = _get_stt().transcribe(tmp_path)
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "Transcription Failed",
+                    "message": f"Could not transcribe audio: {exc}",
+                },
+            )
+
+        if not transcribed_text or not transcribed_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Bad Request",
+                    "message": "No speech detected in the recording.",
+                },
+            )
+
+        session_id = session_id or str(uuid.uuid4())
+
+        try:
+            result = run_query(raw_query=transcribed_text, session_id=session_id)
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Internal Server Error",
+                    "message": f"Pipeline raised an unexpected exception: {exc}",
+                },
+            )
+
+        result_data = (
+            result.model_dump() if hasattr(result, "model_dump") else result.dict()
+        )
+        return {**result_data, "transcribed_text": transcribed_text, "session_id": session_id}
+    finally:
+        os.unlink(tmp_path)
