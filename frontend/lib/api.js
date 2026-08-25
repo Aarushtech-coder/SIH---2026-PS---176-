@@ -1,10 +1,12 @@
 import { SCENARIOS, classifyIntent } from "./mockData";
 
 // Single seam between the UI and the orchestration backend. Every caller
-// goes through sendQuery() -- once Role 1 exposes orchestration/graph.py's
-// run_query() over HTTP, only this function's body needs to change to a
-// fetch() call; TurnState shape (state.py) stays identical either way.
-const USE_MOCK = true;
+// goes through sendQuery() -- Role 1's orchestration/graph.py run_query()
+// is now exposed over HTTP at http://localhost:8000/query, so USE_MOCK is
+// off and this function calls the real backend. TurnState shape (state.py)
+// stays identical either way.
+const USE_MOCK = false;
+const API_BASE_URL = "http://localhost:8000";
 
 const ALL_AGENT_NAMES = [
   "weather_agent",
@@ -20,7 +22,9 @@ function delay(ms) {
 
 function buildTurnState(rawQuery, scenario) {
   const now = new Date().toISOString();
-  const agent_outputs = Object.fromEntries(ALL_AGENT_NAMES.map((name) => [name, null]));
+  const agent_outputs = Object.fromEntries(
+    ALL_AGENT_NAMES.map((name) => [name, null]),
+  );
   for (const [name, output] of Object.entries(scenario.agent_outputs)) {
     agent_outputs[name] = output;
   }
@@ -41,12 +45,67 @@ function buildTurnState(rawQuery, scenario) {
   };
 }
 
+async function parseErrorResponse(response) {
+  const errorBody = await response.json().catch(() => ({}));
+  return (
+    errorBody?.detail?.message || errorBody?.error || `Request failed with status ${response.status}`
+  );
+}
+
+// Shared by both the text and voice live paths: replays a TurnState's trace
+// entries with small delays so the reasoning panel animates step-by-step
+// instead of popping in all at once (matches the mock's UX).
+async function replayLiveResponse(turnState, { onTrace, onPlan } = {}) {
+  onPlan?.(["planner", ...(turnState.required_agents || []), "synthesizer"]);
+  for (const entry of turnState.trace || []) {
+    onTrace?.(entry);
+    await delay(350);
+  }
+  return turnState;
+}
+
+async function sendQueryLive(rawQuery, { onTrace, onPlan } = {}) {
+  const response = await fetch(`${API_BASE_URL}/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: rawQuery }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorResponse(response));
+  }
+
+  const turnState = await response.json();
+  return replayLiveResponse(turnState, { onTrace, onPlan });
+}
+
+// Uploads a recorded audio clip to the voice endpoint. Contract (see the
+// message to Role 4): POST /voice-query, multipart/form-data with an
+// "audio" field, response is a TurnState JSON plus a top-level
+// transcribed_text field so the UI can show what was heard.
+export async function sendVoiceQuery(audioBlob, { onTrace, onPlan } = {}) {
+  const formData = new FormData();
+  formData.append("audio", audioBlob, "query.webm");
+
+  const response = await fetch(`${API_BASE_URL}/voice-query`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorResponse(response));
+  }
+
+  const turnState = await response.json();
+  return replayLiveResponse(turnState, { onTrace, onPlan });
+}
+
 // Resolves with the final TurnState. Calls onTrace(entry) as each step of
-// the (simulated) multi-agent run completes, so the UI can render the
-// reasoning panel live instead of popping in all at once.
+// the multi-agent run completes, so the UI can render the reasoning panel
+// live instead of popping in all at once.
 export async function sendQuery(rawQuery, { onTrace, onPlan } = {}) {
   if (!USE_MOCK) {
-    throw new Error("Live orchestration API not wired up yet -- flip USE_MOCK once it exists.");
+    return sendQueryLive(rawQuery, { onTrace, onPlan });
   }
 
   const intent = classifyIntent(rawQuery);

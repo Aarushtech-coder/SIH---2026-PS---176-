@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
+import { useLocale } from "@/lib/i18n/LocaleContext";
 import { MAP_LAYERS, OVERVIEW } from "@/lib/mockData";
 import { IconSearch } from "@/components/icons/Icons";
 import styles from "./page.module.css";
@@ -11,11 +12,17 @@ import styles from "./page.module.css";
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
 const LAYER_TOGGLES = [
-  { key: "pfz", label: "PFZ Zones", swatch: "#16a34a" },
-  { key: "hazard", label: "Hazard Zones", swatch: "#dc2626" },
-  { key: "routes", label: "Fishing Routes", swatch: "#2a6fdb" },
-  { key: "boundary", label: "Boundaries", swatch: "#5b6b83" },
+  { key: "pfz", labelKey: "layer.pfzZones", swatch: "#16a34a" },
+  { key: "hazard", labelKey: "layer.hazardZones", swatch: "#dc2626" },
+  { key: "routes", labelKey: "layer.fishingRoutes", swatch: "#2a6fdb" },
+  { key: "boundary", labelKey: "layer.boundaries", swatch: "#5b6b83" },
 ];
+
+const ZONE_STATUS_KEYS = {
+  safe: "zoneStatus.safe",
+  approaching: "zoneStatus.approaching",
+  crossed: "zoneStatus.crossed",
+};
 
 function InfoTile({ label, value }) {
   return (
@@ -26,12 +33,9 @@ function InfoTile({ label, value }) {
   );
 }
 
-function capitalize(s) {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
-}
-
 export default function MapExplorerPage() {
   const { mapData } = useOrca();
+  const { t } = useLocale();
   const [visibility, setVisibility] = useState({ pfz: true, hazard: true, routes: true, boundary: true });
 
   const geo = mapData?.current_position ? mapData : null;
@@ -43,18 +47,18 @@ export default function MapExplorerPage() {
   return (
     <div className={styles.page}>
       <Topbar
-        title="Map Explorer"
-        subtitle="Explore marine data, zones and weather on the map"
+        title={t("nav.map")}
+        subtitle={t("map.subtitle")}
         right={
           <div className={styles.searchBox}>
             <IconSearch size={15} />
-            <input placeholder="Search location..." />
+            <input placeholder={t("map.searchPlaceholder")} />
           </div>
         }
       />
 
       <div className={styles.toolbar}>
-        {LAYER_TOGGLES.map(({ key, label, swatch }) => (
+        {LAYER_TOGGLES.map(({ key, labelKey, swatch }) => (
           <button
             key={key}
             type="button"
@@ -62,7 +66,7 @@ export default function MapExplorerPage() {
             onClick={() => toggleLayer(key)}
           >
             <span className={styles.swatch} style={{ background: swatch }} />
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>
@@ -73,17 +77,17 @@ export default function MapExplorerPage() {
 
       <div className={styles.footer}>
         <div className={styles.legend}>
-          {LAYER_TOGGLES.map(({ key, label, swatch }) => (
+          {LAYER_TOGGLES.map(({ key, labelKey, swatch }) => (
             <span key={key} className={styles.legendItem}>
               <span className={styles.swatch} style={{ background: swatch }} />
-              {label}
+              {t(labelKey)}
             </span>
           ))}
         </div>
 
         <div className={styles.infoPanel}>
           <div className={styles.infoHeader}>
-            <h2>Location Info</h2>
+            <h2>{t("map.locationInfo")}</h2>
             {geo && (
               <span className={styles.coord}>
                 {geo.current_position.lat.toFixed(2)}°N, {geo.current_position.lon.toFixed(2)}°E
@@ -91,10 +95,16 @@ export default function MapExplorerPage() {
             )}
           </div>
           <div className={styles.infoGrid}>
-            <InfoTile label="Zone Status" value={geo ? capitalize(geo.zone_status) : "Within safe zone"} />
-            <InfoTile label="Distance to IMBL" value={geo ? `${geo.distance_to_imbl_nm} nm` : "--"} />
-            <InfoTile label="Within IMBL" value={geo ? (geo.zone_status === "crossed" ? "No" : "Yes") : "Yes"} />
-            <InfoTile label="Sea Condition" value={OVERVIEW.seaCondition} />
+            <InfoTile
+              label={t("map.zoneStatus")}
+              value={geo ? t(ZONE_STATUS_KEYS[geo.zone_status] ?? geo.zone_status) : t("map.withinSafeZone")}
+            />
+            <InfoTile label={t("map.distanceImbl")} value={geo ? `${geo.distance_to_imbl_nm} nm` : "--"} />
+            <InfoTile
+              label={t("map.withinImbl")}
+              value={geo ? (geo.zone_status === "crossed" ? t("common.no") : t("common.yes")) : t("common.yes")}
+            />
+            <InfoTile label={t("stat.seaCondition")} value={OVERVIEW.seaCondition} />
           </div>
         </div>
       </div>

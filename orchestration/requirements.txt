@@ -3,6 +3,9 @@ pydantic
 pytest
 python-dotenv
 groq
+fastapi
+uvicorn[standard]
+python-multipart
 shapely
 openai-whisper
 gTTS

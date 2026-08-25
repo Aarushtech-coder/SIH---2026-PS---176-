@@ -83,6 +83,16 @@
   width: 100%;
 }
 
+.bubble.error {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--critical-soft);
+  color: #a92c2c;
+  font-size: 0.85rem;
+}
+
 .thinking {
   display: flex;
   gap: 0.3rem;
@@ -117,6 +127,34 @@
   40% {
     opacity: 1;
   }
+}
+
+.recordingBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--critical);
+  background: var(--critical-soft);
+  border-top: 1px solid var(--border);
+}
+
+.recordingDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--critical);
+  animation: pulse 1s infinite ease-in-out;
+}
+
+.micErrorBar {
+  padding: 0.5rem 1rem;
+  font-size: 0.78rem;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-top: 1px solid var(--border);
 }
 
 .inputRow {
@@ -161,6 +199,12 @@
 .iconButton:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.iconButton.recording {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: white;
 }
 
 .sendButton {
