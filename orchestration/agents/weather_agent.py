@@ -22,6 +22,8 @@ from orchestration.state import TurnState, AgentOutput, TraceEntry
 from datetime import datetime, timedelta
 import json
 import logging
+import ssl
+import certifi
 import math
 import re
 import urllib.request
@@ -41,6 +43,7 @@ THREDDS_WMS_BASE = (
 RSMC_URL = "https://rsmcnewdelhi.imd.gov.in"
 
 REQUEST_TIMEOUT_SECONDS = 15
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 # Default query point when user_location is not provided.
 # Off the Indian west coast near Goa — a reasonable central default.
@@ -51,18 +54,19 @@ DEFAULT_LON = 73.0
 # Each entry: (layer_name, contract_field, unit_conversion_factor)
 # The WW3 model outputs wind in m/s; contract needs km/h → multiply by 3.6.
 LAYER_MAP = [
-    ("UWND:VWND-mag", "wind_speed_kmh",    3.6),   # m/s → km/h
-    ("UWND:VWND-dir", "wind_direction_deg", 1.0),   # degrees, no conversion
-    ("HS",            "wave_height_m",      1.0),   # meters
-    ("MWD",           "wave_direction_deg",  1.0),   # degrees
-    ("T02",           "wave_period_sec",     1.0),   # seconds
-    ("PHS01",         "swell_height_m",      1.0),   # meters (swell partition)
+    ("UWND:VWND-mag", "wind_speed_kmh", 3.6),  # m/s → km/h
+    ("UWND:VWND-dir", "wind_direction_deg", 1.0),  # degrees, no conversion
+    ("HS", "wave_height_m", 1.0),  # meters
+    ("MWD", "wave_direction_deg", 1.0),  # degrees
+    ("T02", "wave_period_sec", 1.0),  # seconds
+    ("PHS01", "swell_height_m", 1.0),  # meters (swell partition)
 ]
 
 
 # ---------------------------------------------------------------------------
 # THREDDS helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_thredds_wms_url(date_str: str) -> str:
     """Construct the THREDDS WMS base URL for a given date.
@@ -117,8 +121,9 @@ def _parse_feature_info_value(text: str) -> float:
     return value
 
 
-def _get_feature_info(base_url: str, layer: str, lat: float, lon: float,
-                      time_str: str) -> float:
+def _get_feature_info(
+    base_url: str, layer: str, lat: float, lon: float, time_str: str
+) -> float:
     """Query one THREDDS WMS layer for a single point and time.
 
     Uses the WMS GetFeatureInfo request to get the value at the center
@@ -158,7 +163,9 @@ def _get_feature_info(base_url: str, layer: str, lat: float, lon: float,
         },
     )
 
-    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+    with urllib.request.urlopen(
+        req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+    ) as resp:
         if resp.status != 200:
             raise ConnectionError(f"THREDDS returned HTTP {resp.status} for {layer}")
         raw = resp.read().decode("utf-8")
@@ -201,15 +208,14 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         # Use the nearest 3-hour time step from now
         # THREDDS time range: every 3 hours (PT3H)
         hour_rounded = (now.hour // 3) * 3
-        time_str = now.replace(hour=hour_rounded, minute=0, second=0,
-                               microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        time_str = now.replace(
+            hour=hour_rounded, minute=0, second=0, microsecond=0
+        ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
         try:
             data = {}
             for layer_name, contract_field, conversion in LAYER_MAP:
-                raw_value = _get_feature_info(
-                    base_url, layer_name, lat, lon, time_str
-                )
+                raw_value = _get_feature_info(base_url, layer_name, lat, lon, time_str)
                 data[contract_field] = round(raw_value * conversion, 2)
 
             # Forecast valid until: end of the THREDDS time range (7 days out)
@@ -238,14 +244,13 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
             continue
 
     # Both dates failed
-    raise RuntimeError(
-        f"All THREDDS date attempts failed. Last error: {last_error}"
-    )
+    raise RuntimeError(f"All THREDDS date attempts failed. Last error: {last_error}")
 
 
 # ---------------------------------------------------------------------------
 # Cyclone alert
 # ---------------------------------------------------------------------------
+
 
 def _check_cyclone_alert() -> tuple[str | None, bool]:
     """Check RSMC New Delhi for active cyclone bulletins.
@@ -269,7 +274,9 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
         headers={"User-Agent": "ORCA-WeatherAgent/1.0"},
     )
 
-    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+    with urllib.request.urlopen(
+        req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+    ) as resp:
         html = resp.read().decode("utf-8", errors="replace")
 
     # Look for PDF bulletin links
@@ -286,10 +293,21 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
         if "no_cyclone" in link_lower or "no cyclone" in link_lower:
             continue
         # Skip non-bulletin PDFs (guidelines, reports, etc.)
-        if any(skip in link_lower for skip in [
-            "dm_act", "ndma", "policy", "plan", "faq", "terminology",
-            "damage", "evolution", "tc-names", "brochure"
-        ]):
+        if any(
+            skip in link_lower
+            for skip in [
+                "dm_act",
+                "ndma",
+                "policy",
+                "plan",
+                "faq",
+                "terminology",
+                "damage",
+                "evolution",
+                "tc-names",
+                "brochure",
+            ]
+        ):
             continue
         active_bulletins.append(link)
 
@@ -297,7 +315,11 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
         return None, False
 
     # Define strict full phrases for matching
-    red_phrases = ["very severe cyclonic storm", "extremely severe cyclonic storm", "super cyclonic storm"]
+    red_phrases = [
+        "very severe cyclonic storm",
+        "extremely severe cyclonic storm",
+        "super cyclonic storm",
+    ]
     orange_phrases = ["severe cyclonic storm", "cyclonic storm"]
     yellow_phrases = ["deep depression", "depression"]
 
@@ -331,6 +353,7 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
 # Mock fallback
 # ---------------------------------------------------------------------------
 
+
 def _build_mock_data() -> dict:
     """Return a contract-compliant mock weather response.
 
@@ -356,6 +379,7 @@ def _build_mock_data() -> dict:
 # ---------------------------------------------------------------------------
 # Agent entry point
 # ---------------------------------------------------------------------------
+
 
 def run(state: TurnState) -> TurnState:
     """Fetch INCOIS weather data, transform to contract schema, write to state.
@@ -405,12 +429,12 @@ def run(state: TurnState) -> TurnState:
             f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
         )
         if match_failed:
-            output_summary += " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
+            output_summary += (
+                " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
+            )
 
     except Exception as e:
-        logger.warning(
-            f"Weather fetch failed: {e}. Falling back to MOCK data."
-        )
+        logger.warning(f"Weather fetch failed: {e}. Falling back to MOCK data.")
         data = _build_mock_data()
         source = "MOCK"
         action = "fetched mock weather data (fallback)"
