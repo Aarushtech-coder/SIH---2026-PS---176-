@@ -96,7 +96,7 @@ def run(state: TurnState) -> TurnState:
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
 
         data = {
-            "distance_to_imbl_nm": distance_nm,
+            "distance_to_imbl_nm": round(distance_nm, 2),
             "current_position": {"lat": lat, "lon": lon},
             "nearest_boundary_point": {"lat": nearest_lat, "lon": nearest_lon},
             "zone_status": _classify_zone(distance_nm, inside),
@@ -123,7 +123,7 @@ def run(state: TurnState) -> TurnState:
             action="geofence_check",
             input_summary=state.resolved_query,
             output_summary=action_detail,
-        timestamp=timestamp,
+            timestamp=timestamp,
         )
     )
 
