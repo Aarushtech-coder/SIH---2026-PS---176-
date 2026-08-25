@@ -33,6 +33,18 @@ WHISPER_MODEL_SIZE = "medium"  # use "small" for faster demo-day inference if CP
 _whisper_model = None
 
 
+class SpeechToText:
+    """Thin class wrapper around the module-level speech_to_text() function.
+
+    Instantiated lazily in main.py so the Whisper model is only loaded on the
+    first /voice-query request, not at startup.
+    """
+
+    def transcribe(self, audio_path: str):
+        """Returns (whisper_lang_code, transcribed_text)."""
+        return speech_to_text(audio_path)
+
+
 def _load_whisper():
     global _whisper_model
     if _whisper_model is None:
