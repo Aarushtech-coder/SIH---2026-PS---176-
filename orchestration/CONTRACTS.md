@@ -16,13 +16,13 @@ Source: INCOIS Ocean State Forecast (wind + waves), IMD (cyclone bulletins)
 
 data = {
 "wind_speed_kmh": float,
-"wind_direction_deg": float,     # 0-360, meteorological convention
-"wave_height_m": float,           # significant wave height (Hs)
+"wind_direction_deg": float, # 0-360, meteorological convention
+"wave_height_m": float, # significant wave height (Hs)
 "wave_direction_deg": float,
 "wave_period_sec": float,
-"swell_height_m": float,          # tracked separately: swell is often the more dangerous factor even when wind-driven waves look calm
-"cyclone_alert": str | None,      # "Yellow" | "Orange" | "Red" | None
-"forecast_valid_until": str,      # ISO timestamp
+"swell_height_m": float, # tracked separately: swell is often the more dangerous factor even when wind-driven waves look calm
+"cyclone_alert": str | None, # "Yellow" | "Orange" | "Red" | None
+"forecast_valid_until": str, # ISO timestamp
 }
 
 ## marine_data_agent
@@ -36,12 +36,12 @@ data = {
 "latitude": float,
 "longitude": float,
 "distance_from_coast_km": float,
-"direction_from_landing_centre": str,   # e.g. "SW"
-"depth_range_m": str,                    # e.g. "50-70"
+"direction_from_landing_centre": str, # e.g. "SW"
+"depth_range_m": str, # e.g. "50-70"
 }
 ],
 "advisory_valid_from": str,
-"advisory_valid_until": str,     # PFZ advisories expire — don't show stale zones as current
+"advisory_valid_until": str, # PFZ advisories expire — don't show stale zones as current
 }
 
 ## ocean_analytics_agent
@@ -59,8 +59,8 @@ data = {
 Source: derived from weather_agent + ocean_analytics_agent outputs, using official IMD/INCOIS safety thresholds
 
 data = {
-"verdict": str,              # "safe" | "caution" | "unsafe"
-"reasons": [str],            # e.g. ["wave height 3.2m exceeds 2.5m small-craft threshold"]
+"verdict": str, # "safe" | "caution" | "unsafe"
+"reasons": [str], # e.g. ["wave height 3.2m exceeds 2.5m small-craft threshold"]
 "thresholds_used": {
 "max_safe_wave_height_m": float,
 "max_safe_wind_speed_kmh": float,
@@ -74,10 +74,10 @@ Critical: thresholds must be cited from an actual IMD/INCOIS published safety cr
 Source: IMBL/EEZ boundary GeoJSON
 
 data = {
-"distance_to_imbl_nm": float,     # nautical miles
+"distance_to_imbl_nm": float, # nautical miles
 "current_position": {"lat": float, "lon": float},
 "nearest_boundary_point": {"lat": float, "lon": float},
-"zone_status": str,                # "safe" | "approaching" | "crossed"
+"zone_status": str, # "safe" | "approaching" | "crossed"
 }
 
 ## Resilience rule for everyone
@@ -87,3 +87,21 @@ Your agent's run(state) function must never raise an exception, even if the real
 ## Trace logging
 
 Always append one TraceEntry to state.trace describing what your agent did, in the same format the existing stub files already use. This trace is what powers the live "reasoning panel" the frontend will show judges.
+
+## File naming (do not rename without syncing with Role 1)
+
+These filenames are fixed and imported by main.py / other agents — renaming breaks the pipeline on merge:
+
+- orchestration/localization_pipeline.py
+- orchestration/planner.py
+- orchestration/graph.py
+- orchestration/synthesizer.py
+- orchestration/session_store.py
+- orchestration/state.py
+- orchestration/agents/marine_data_agent.py
+- orchestration/agents/weather_agent.py
+- orchestration/agents/ocean_analytics_agent.py
+- orchestration/agents/risk_agent.py
+- orchestration/agents/geospatial_agent.py
+
+If a rename is genuinely needed, open a PR that updates the filename **and** every import referencing it in the same commit, and ping Role 1 before merging.
