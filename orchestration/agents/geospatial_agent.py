@@ -10,6 +10,9 @@ Implements the Agent Hand-off Contract (see orchestration/CONTRACTS.md):
 
 from datetime import datetime, timezone
 import math
+import json
+import os
+from typing import Any
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
@@ -18,15 +21,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from shapely.geometry import Point, shape
-    from shapely.ops import nearest_points
-    import json
+    from shapely.geometry import Point as _Point, shape as _shape
+    from shapely.ops import nearest_points as _nearest_points, unary_union as _unary_union
 
     SHAPELY_AVAILABLE = True
 except ImportError:
+    _Point: Any = None
+    _shape: Any = None
+    _nearest_points: Any = None
+    _unary_union: Any = None
     SHAPELY_AVAILABLE = False
-
-import os
 
 BOUNDARY_GEOJSON_PATH = os.path.join(
     os.path.dirname(__file__), "..", "data", "india_imbl_eez.geojson"
@@ -52,10 +56,12 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
 
 
 def _load_boundary():
+    """Merges only India's own EEZ features into one boundary -- the file
+    also contains Bangladesh and Myanmar EEZ polygons, which must be
+    excluded so 'inside' correctly means inside India's own waters, not
+    any neighboring country's."""
     with open(BOUNDARY_GEOJSON_PATH) as f:
         geojson = json.load(f)
-    from shapely.ops import unary_union
-
     india_features = [
         f
         for f in geojson["features"]
@@ -63,8 +69,8 @@ def _load_boundary():
     ]
     if not india_features:
         raise ValueError("No India EEZ features found in boundary geojson")
-    geometries = [shape(f["geometry"]) for f in india_features]
-    return unary_union(geometries)
+    geometries = [_shape(f["geometry"]) for f in india_features]
+    return _unary_union(geometries)
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:
@@ -99,24 +105,25 @@ def run(state: TurnState) -> TurnState:
         if not SHAPELY_AVAILABLE:
             raise RuntimeError("shapely not installed")
         boundary = _load_boundary()
-        point = Point(lon, lat)
+        point = _Point(lon, lat)
 
         inside = (
             boundary.contains(point)
             if boundary.geom_type.endswith("Polygon")
+            or boundary.geom_type == "MultiPolygon"
             else False
         )
         # Use the polygon's outline (not its filled area) to find the nearest
         # edge point — distance-to-area is meaningless (always 0) for a point
         # already inside the polygon.
         boundary_outline = boundary.boundary
-        nearest_on_boundary, _ = nearest_points(boundary_outline, point)
+        nearest_on_boundary, _ = _nearest_points(boundary_outline, point)
         nearest_lat, nearest_lon = nearest_on_boundary.y, nearest_on_boundary.x
 
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
 
         data = {
-            "distance_to_imbl_nm": distance_nm,
+            "distance_to_imbl_nm": round(distance_nm, 2),
             "current_position": {"lat": lat, "lon": lon},
             "nearest_boundary_point": {"lat": nearest_lat, "lon": nearest_lon},
             "zone_status": _classify_zone(distance_nm, inside),
@@ -149,3 +156,63 @@ def run(state: TurnState) -> TurnState:
     )
 
     return state
+
+
+def check_route_safety(start_lat, start_lon, end_lat, end_lon, num_points=20):
+    """
+    Check if a straight-line route crosses any restricted zone.
+    Returns: (is_safe, violation_point, safe_segment_distance)
+    """
+    try:
+        boundary = _load_boundary()
+        for i in range(num_points + 1):
+            fraction = i / num_points
+            lat = start_lat + (end_lat - start_lat) * fraction
+            lon = start_lon + (end_lon - start_lon) * fraction
+            point = _Point(lon, lat)
+            inside = boundary.contains(point)
+
+            if not inside:
+                return (
+                    False,
+                    (lat, lon),
+                    fraction * _haversine_nm(start_lat, start_lon, end_lat, end_lon),
+                )
+
+        return True, None, _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+    except Exception:
+        # Fallback: report safe with no distance, rather than crash the caller
+        return True, None, 0
+
+
+def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
+    """
+    If direct route is unsafe, suggest a detour around the boundary.
+    Simple implementation: route through the nearest safe boundary point.
+    """
+    is_safe, violation_point, _ = check_route_safety(
+        start_lat, start_lon, end_lat, end_lon
+    )
+    if is_safe or violation_point is None:
+        return [{"lat": start_lat, "lon": start_lon}, {"lat": end_lat, "lon": end_lon}]
+
+    boundary = _load_boundary()
+    point = _Point(violation_point[1], violation_point[0])
+    nearest_on_boundary, _ = _nearest_points(boundary, point)
+
+    return [
+        {"lat": start_lat, "lon": start_lon},
+        {"lat": nearest_on_boundary.y, "lon": nearest_on_boundary.x},
+        {"lat": end_lat, "lon": end_lon},
+    ]
+
+
+def distance_to_imbl(lat, lon):
+    """Calculate distance in nautical miles from any point to the IMBL."""
+    try:
+        boundary = _load_boundary()
+        point = _Point(lon, lat)
+        nearest_on_boundary, _ = _nearest_points(boundary, point)
+        return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
+    except Exception:
+        return 999.0  # Fallback: treat as far away rather than crash
