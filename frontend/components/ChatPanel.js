@@ -6,6 +6,7 @@ import AnswerCard from "./AnswerCard";
 import { IconSend, IconMic, IconAlert } from "@/components/icons/Icons";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { useMounted } from "@/lib/useMounted";
 
 const SUGGESTION_KEYS = ["suggestion.safe", "suggestion.nearestZone", "suggestion.boundary"];
 
@@ -18,14 +19,10 @@ export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const listRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
