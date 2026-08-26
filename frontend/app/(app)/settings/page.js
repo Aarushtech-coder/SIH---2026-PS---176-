@@ -33,7 +33,7 @@ function Row({ label, description, control }) {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useLocalStorage("orca.settings", DEFAULT_SETTINGS);
-  const { clearSavedQueries } = useOrca();
+  const { clearSavedQueries, geoStatus, retryGeo } = useOrca();
   const { t } = useLocale();
 
   function set(key, value) {
@@ -43,6 +43,13 @@ export default function SettingsPage() {
   function resetAll() {
     setSettings(DEFAULT_SETTINGS);
     clearSavedQueries();
+  }
+
+  function locationStatusText() {
+    if (geoStatus === "granted") return t("settings.locationGranted");
+    if (geoStatus === "denied") return t("settings.locationDenied");
+    if (geoStatus === "requesting") return t("settings.locationRequesting");
+    return t("settings.locationUnavailable");
   }
 
   return (
@@ -71,6 +78,18 @@ export default function SettingsPage() {
                 value={settings.defaultLocation}
                 onChange={(e) => set("defaultLocation", e.target.value)}
               />
+            }
+          />
+          {/* GPS location status — non-blocking, collapses gracefully */}
+          <Row
+            label={t("settings.location")}
+            description={locationStatusText()}
+            control={
+              geoStatus === "denied" ? (
+                <button type="button" className={styles.resetButton} onClick={retryGeo}>
+                  {t("settings.locationRetry")}
+                </button>
+              ) : null
             }
           />
         </Panel>

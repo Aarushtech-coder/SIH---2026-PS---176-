@@ -34,11 +34,16 @@ function InfoTile({ label, value }) {
 }
 
 export default function MapExplorerPage() {
-  const { mapData } = useOrca();
+  const { mapData, geoLocation } = useOrca();
   const { t } = useLocale();
   const [visibility, setVisibility] = useState({ pfz: true, hazard: true, routes: true, boundary: true });
 
   const geo = mapData?.current_position ? mapData : null;
+
+  // Convert store's {latitude, longitude} shape to MapView's {lat, lon} shape.
+  const gpsCenter = geoLocation
+    ? { lat: geoLocation.latitude, lon: geoLocation.longitude }
+    : null;
 
   function toggleLayer(key) {
     setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -72,7 +77,7 @@ export default function MapExplorerPage() {
       </div>
 
       <div className={styles.mapWrap}>
-        <MapView mapData={mapData} layers={MAP_LAYERS} visibility={visibility} interactive />
+        <MapView mapData={mapData} layers={MAP_LAYERS} visibility={visibility} interactive gpsCenter={gpsCenter} />
       </div>
 
       <div className={styles.footer}>

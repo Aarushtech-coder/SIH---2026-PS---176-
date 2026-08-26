@@ -13,6 +13,10 @@ import math
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:
     from shapely.geometry import Point, shape
     from shapely.ops import nearest_points
@@ -22,7 +26,11 @@ try:
 except ImportError:
     SHAPELY_AVAILABLE = False
 
-BOUNDARY_GEOJSON_PATH = "data/india_imbl_eez.geojson"
+import os
+
+BOUNDARY_GEOJSON_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "data", "india_imbl_eez.geojson"
+)
 NM_PER_DEGREE_LAT = 60.0
 
 
@@ -46,16 +54,25 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
 def _load_boundary():
     with open(BOUNDARY_GEOJSON_PATH) as f:
         geojson = json.load(f)
-    features = geojson["features"]
-    return shape(features[0]["geometry"])
+    from shapely.ops import unary_union
+
+    india_features = [
+        f
+        for f in geojson["features"]
+        if f.get("properties", {}).get("SOVEREIGN1") == "India"
+    ]
+    if not india_features:
+        raise ValueError("No India EEZ features found in boundary geojson")
+    geometries = [shape(f["geometry"]) for f in india_features]
+    return unary_union(geometries)
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:
     if inside:
-        return "crossed"
+        return "safe"
     if distance_nm <= 5.0:
         return "approaching"
-    return "safe"
+    return "crossed"
 
 
 def _mock_output():
@@ -81,7 +98,6 @@ def run(state: TurnState) -> TurnState:
 
         if not SHAPELY_AVAILABLE:
             raise RuntimeError("shapely not installed")
-
         boundary = _load_boundary()
         point = Point(lon, lat)
 
@@ -90,7 +106,11 @@ def run(state: TurnState) -> TurnState:
             if boundary.geom_type.endswith("Polygon")
             else False
         )
-        nearest_on_boundary, _ = nearest_points(boundary, point)
+        # Use the polygon's outline (not its filled area) to find the nearest
+        # edge point — distance-to-area is meaningless (always 0) for a point
+        # already inside the polygon.
+        boundary_outline = boundary.boundary
+        nearest_on_boundary, _ = nearest_points(boundary_outline, point)
         nearest_lat, nearest_lon = nearest_on_boundary.y, nearest_on_boundary.x
 
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
@@ -105,6 +125,7 @@ def run(state: TurnState) -> TurnState:
         action_detail = f"Computed geofence: {data['zone_status']}, {data['distance_to_imbl_nm']} nm from IMBL"
 
     except Exception as e:
+        logger.warning(f"Geospatial fetch failed: {e}. Falling back to MOCK data.")
         data = _mock_output()
         source = "MOCK"
         action_detail = f"Fell back to MOCK data due to: {e}"
@@ -124,8 +145,6 @@ def run(state: TurnState) -> TurnState:
             input_summary=state.resolved_query,
             output_summary=action_detail,
             timestamp=timestamp,
-        
-
         )
     )
 

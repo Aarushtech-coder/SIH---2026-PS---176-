@@ -64,11 +64,17 @@ async function replayLiveResponse(turnState, { onTrace, onPlan } = {}) {
   return turnState;
 }
 
-async function sendQueryLive(rawQuery, { onTrace, onPlan } = {}) {
+async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
+  const body = { text: rawQuery };
+  if (coords && coords.latitude != null && coords.longitude != null) {
+    body.latitude = coords.latitude;
+    body.longitude = coords.longitude;
+  }
+
   const response = await fetch(`${API_BASE_URL}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: rawQuery }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -103,9 +109,9 @@ export async function sendVoiceQuery(audioBlob, { onTrace, onPlan } = {}) {
 // Resolves with the final TurnState. Calls onTrace(entry) as each step of
 // the multi-agent run completes, so the UI can render the reasoning panel
 // live instead of popping in all at once.
-export async function sendQuery(rawQuery, { onTrace, onPlan } = {}) {
+export async function sendQuery(rawQuery, coords, { onTrace, onPlan } = {}) {
   if (!USE_MOCK) {
-    return sendQueryLive(rawQuery, { onTrace, onPlan });
+    return sendQueryLive(rawQuery, coords, { onTrace, onPlan });
   }
 
   const intent = classifyIntent(rawQuery);

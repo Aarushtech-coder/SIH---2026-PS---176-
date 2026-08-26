@@ -284,4 +284,62 @@ def run(state: TurnState) -> TurnState:
         except Exception:
             pass
 
+    # -----------------------------------------------------------------------
+    # Populate map_data for the frontend MapView component.
+    # Wrapped in try/except so malformed/missing agent data never crashes the
+    # response. Uses "lat"/"lon" keys as expected by the frontend contract.
+    # -----------------------------------------------------------------------
+    try:
+        map_data: dict | None = None
+
+        if state.intent == "nearest_pfz":
+            marine_out = state.agent_outputs.get("marine_data_agent")
+            if marine_out is not None:
+                raw_zones = marine_out.data.get("pfz_zones", [])
+                pfz_zones = []
+                for z in raw_zones:
+                    # Contract uses "latitude"/"longitude"; frontend expects "lat"/"lon"
+                    if "latitude" not in z or "longitude" not in z:
+                        continue
+                    pfz_zones.append(
+                        {
+                            "zone_id": z.get("zone_id", ""),
+                            "lat": z["latitude"],
+                            "lon": z["longitude"],
+                        }
+                    )
+                if pfz_zones:
+                    map_data = {
+                        "pfz_zones": pfz_zones,
+                        "center": {"lat": pfz_zones[0]["lat"], "lon": pfz_zones[0]["lon"]},
+                        "zoom": 9,
+                    }
+
+        elif state.intent == "geofence_check":
+            geo_out = state.agent_outputs.get("geospatial_agent")
+            if geo_out is not None:
+                d = geo_out.data
+                built: dict = {}
+                if "current_position" in d:
+                    built["current_position"] = d["current_position"]
+                    built["center"] = d["current_position"]
+                if "nearest_boundary_point" in d:
+                    built["nearest_boundary_point"] = d["nearest_boundary_point"]
+                built["zoom"] = 8
+                if built:
+                    map_data = built
+
+        elif state.intent in {"safe_to_sail", "weather_tide"}:
+            loc = state.user_location
+            if loc and "lat" in loc and "lon" in loc:
+                map_data = {
+                    "center": {"lat": loc["lat"], "lon": loc["lon"]},
+                    "zoom": 10,
+                }
+
+        state.map_data = map_data
+    except Exception:
+        # Never let map_data errors break the response; leave map_data as None.
+        pass
+
     return state

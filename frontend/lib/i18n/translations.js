@@ -154,6 +154,13 @@ const en = {
   "settings.resetAll": "Reset all settings",
   "settings.resetAllDesc": "Restore defaults and clear saved query history",
   "settings.reset": "Reset",
+
+  "settings.location": "Location",
+  "settings.locationGranted": "Using your live location",
+  "settings.locationDenied": "Location access denied — using default area",
+  "settings.locationRequesting": "Requesting location…",
+  "settings.locationUnavailable": "Location unavailable in this browser",
+  "settings.locationRetry": "Retry",
 };
 
 const hi = {
@@ -299,6 +306,13 @@ const hi = {
   "settings.resetAll": "सभी सेटिंग्स रीसेट करें",
   "settings.resetAllDesc": "डिफ़ॉल्ट पुनर्स्थापित करें और सहेजा गया प्रश्न इतिहास साफ़ करें",
   "settings.reset": "रीसेट करें",
+
+  "settings.location": "स्थान",
+  "settings.locationGranted": "आपकी लाइव लोकेशन का उपयोग हो रहा है",
+  "settings.locationDenied": "स्थान एक्सेस अस्वीकृत — डिफ़ॉल्ट क्षेत्र उपयोग हो रहा है",
+  "settings.locationRequesting": "स्थान अनुरोध किया जा रहा है…",
+  "settings.locationUnavailable": "इस ब्राउज़र में लोकेशन उपलब्ध नहीं है",
+  "settings.locationRetry": "पुनः प्रयास करें",
 };
 
 const ta = {
@@ -444,6 +458,13 @@ const ta = {
   "settings.resetAll": "அனைத்து அமைப்புகளையும் மீட்டமை",
   "settings.resetAllDesc": "இயல்புநிலைகளை மீட்டமைத்து சேமிக்கப்பட்ட வினவல் வரலாற்றை அழிக்கவும்",
   "settings.reset": "மீட்டமை",
+
+  "settings.location": "இடம்",
+  "settings.locationGranted": "உங்கள் நேரடி இருப்பிடம் பயன்படுத்தப்படுகிறது",
+  "settings.locationDenied": "இட அணுகல் மறுக்கப்பட்டது — இயல்புநிலை பகுதி பயன்படுத்தப்படுகிறது",
+  "settings.locationRequesting": "இடம் கோரப்படுகிறது…",
+  "settings.locationUnavailable": "இந்த உலாவியில் இடம் கிடைக்கவில்லை",
+  "settings.locationRetry": "மீண்டும் முயற்சி",
 };
 
 const te = {
@@ -589,6 +610,13 @@ const te = {
   "settings.resetAll": "అన్ని సెట్టింగ్‌లను రీసెట్ చేయండి",
   "settings.resetAllDesc": "డిఫాల్ట్‌లను పునరుద్ధరించి, సేవ్ చేసిన ప్రశ్న చరిత్రను క్లియర్ చేయండి",
   "settings.reset": "రీసెట్",
+
+  "settings.location": "స్థానం",
+  "settings.locationGranted": "మీ లైవ్ స్థానం ఉపయోగించబడుతోంది",
+  "settings.locationDenied": "స్థాన యాక్సెస్ నిరాకరించబడింది — డిఫాల్ట్ ప్రాంతం ఉపయోగించబడుతోంది",
+  "settings.locationRequesting": "స్థానం అభ్యర్థించబడుతోంది…",
+  "settings.locationUnavailable": "ఈ బ్రౌజర్‌లో స్థానం అందుబాటులో లేదు",
+  "settings.locationRetry": "మళ్లీ ప్రయత్నించు",
 };
 
 export const TRANSLATIONS = { en, hi, ta, te };

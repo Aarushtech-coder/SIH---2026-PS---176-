@@ -56,6 +56,9 @@ class QueryRequest(BaseModel):
     # context resolution. The frontend should persist it from the response and
     # send it back on subsequent calls within the same session.
     session_id: str | None = None
+    # Optional GPS coordinates sent from the frontend device.
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +121,16 @@ async def query(request: QueryRequest):
     # Use the provided session_id or generate a fresh one for a new session.
     session_id = request.session_id or str(uuid.uuid4())
 
+    # Build user_location from GPS coordinates if both are provided.
+    user_location: dict | None = None
+    if request.latitude is not None and request.longitude is not None:
+        user_location = {"lat": request.latitude, "lon": request.longitude}
+
     try:
-        # Pass session_id correctly — turn_id is auto-generated inside run_query.
-        result = run_query(raw_query=request.text, session_id=session_id)
+        # Pass session_id and user_location — turn_id is auto-generated inside run_query.
+        result = run_query(
+            raw_query=request.text, session_id=session_id, user_location=user_location
+        )
     except Exception as exc:
         # Print the full traceback to the server console for hackathon debugging.
         traceback.print_exc()
@@ -142,7 +152,12 @@ async def query(request: QueryRequest):
 
 
 @app.post("/voice-query", summary="Run the ORCA pipeline from a voice recording")
-async def voice_query(audio: UploadFile = File(...), session_id: str | None = Form(None)):
+async def voice_query(
+    audio: UploadFile = File(...),
+    session_id: str | None = Form(None),
+    latitude: float | None = Form(None),
+    longitude: float | None = Form(None),
+):
     """
     Accepts a recorded audio clip in any language Whisper supports, transcribes
     it, then runs the same Planner -> Agents -> Synthesizer pipeline as
@@ -179,8 +194,17 @@ async def voice_query(audio: UploadFile = File(...), session_id: str | None = Fo
 
         session_id = session_id or str(uuid.uuid4())
 
+        # Build user_location from GPS coordinates if both are provided.
+        user_location: dict | None = None
+        if latitude is not None and longitude is not None:
+            user_location = {"lat": latitude, "lon": longitude}
+
         try:
-            result = run_query(raw_query=transcribed_text, session_id=session_id)
+            result = run_query(
+                raw_query=transcribed_text,
+                session_id=session_id,
+                user_location=user_location,
+            )
         except Exception as exc:
             traceback.print_exc()
             raise HTTPException(
@@ -194,6 +218,10 @@ async def voice_query(audio: UploadFile = File(...), session_id: str | None = Fo
         result_data = (
             result.model_dump() if hasattr(result, "model_dump") else result.dict()
         )
-        return {**result_data, "transcribed_text": transcribed_text, "session_id": session_id}
+        return {
+            **result_data,
+            "transcribed_text": transcribed_text,
+            "session_id": session_id,
+        }
     finally:
         os.unlink(tmp_path)

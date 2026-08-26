@@ -16,7 +16,7 @@ const pinIcon = L.icon({
   iconAnchor: [12, 41],
 });
 
-const DEFAULT_CENTER = { lat: 13.0827, lon: 80.2707 }; // Chennai, placeholder
+const DEFAULT_CENTER = { lat: 13.0827, lon: 80.2707 }; // Chennai, fallback only
 
 const COLOR = {
   pfz: "#16a34a",
@@ -24,12 +24,27 @@ const COLOR = {
   route: "#2a6fdb",
   boundary: "#5b6b83",
   location: "#2a6fdb",
+  gps: "#7c3aed",
 };
 
-export default function MapView({ mapData, layers, visibility = {}, interactive = true }) {
+/**
+ * @param {object} props
+ * @param {object|null} [props.mapData]   - Data returned from a query response.
+ * @param {object|null} [props.layers]    - Static map layer data.
+ * @param {object}      [props.visibility]
+ * @param {boolean}     [props.interactive]
+ * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
+ */
+export default function MapView({ mapData, layers, visibility = {}, interactive = true, gpsCenter = null }) {
   const { t } = useLocale();
-  const center = mapData?.center ?? layers?.center ?? DEFAULT_CENTER;
+
+  // Center priority: query response > static layers > live GPS > Chennai default
+  const center = mapData?.center ?? layers?.center ?? gpsCenter ?? DEFAULT_CENTER;
   const zoom = mapData?.zoom ?? layers?.zoom ?? 9;
+
+  // Show a GPS marker only when we have a live position AND the query hasn't
+  // already provided a current_position (to avoid double-pinning).
+  const showGpsMarker = gpsCenter && !mapData?.current_position;
 
   return (
     <div className={styles.wrap}>
@@ -119,6 +134,17 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
               />
             )}
           </>
+        )}
+
+        {/* "You are here" marker from live GPS when query has no current_position */}
+        {showGpsMarker && (
+          <CircleMarker
+            center={[gpsCenter.lat, gpsCenter.lon]}
+            radius={8}
+            pathOptions={{ color: COLOR.gps, fillColor: COLOR.gps, fillOpacity: 0.9, weight: 2 }}
+          >
+            <Popup>{t("map.currentPosition")}</Popup>
+          </CircleMarker>
         )}
       </MapContainer>
 

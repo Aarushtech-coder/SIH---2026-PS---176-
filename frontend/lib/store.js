@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { sendQuery, sendVoiceQuery } from "./api";
 import { useLocalStorage } from "./useLocalStorage";
+import { useGeolocation } from "./useGeolocation";
 
 const OrcaContext = createContext(null);
 
@@ -20,6 +21,13 @@ export function OrcaProvider({ children }) {
   const [mapData, setMapData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [savedQueries, setSavedQueries] = useLocalStorage("orca.savedQueries", []);
+
+  // GPS — single read per session; exposed so any component can consume it.
+  const { latitude, longitude, status: geoStatus, retry: retryGeo } = useGeolocation();
+  const geoLocation = useMemo(
+    () => (geoStatus === "granted" ? { latitude, longitude } : null),
+    [geoStatus, latitude, longitude]
+  );
 
   const finishTurn = useCallback(
     (turnState, queryText) => {
@@ -60,7 +68,7 @@ export function OrcaProvider({ children }) {
       setLoading(true);
 
       try {
-        const turnState = await sendQuery(query, {
+        const turnState = await sendQuery(query, geoLocation, {
           onPlan: (agents) => setPipeline(agents),
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
         });
@@ -71,7 +79,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn]
+    [finishTurn, failTurn, geoLocation]
   );
 
   // Records->transcribe flow: the user's message bubble starts "pending"
@@ -122,6 +130,10 @@ export function OrcaProvider({ children }) {
     savedQueries,
     clearSavedQueries,
     removeSavedQuery,
+    // GPS state
+    geoLocation,
+    geoStatus,
+    retryGeo,
   };
 
   return <OrcaContext.Provider value={value}>{children}</OrcaContext.Provider>;

@@ -80,3 +80,59 @@ def test_hindi_query_graph_language(monkeypatch):
 
     assert state.language == "hi"
     assert state.final_answer
+
+
+def test_nearest_pfz_map_data(monkeypatch):
+    """nearest_pfz: map_data should have pfz_zones with lat/lon keys and a center."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    state = run_query("Where is the nearest fishing zone?")
+
+    # marine_data_agent always runs for nearest_pfz and always returns at least
+    # the mock zone (PFZ-MOCK-001 at lat=15.35, lon=73.80) when live fetch fails.
+    assert state.map_data is not None, "map_data should not be None for nearest_pfz"
+    assert "pfz_zones" in state.map_data
+    assert len(state.map_data["pfz_zones"]) >= 1
+    first_zone = state.map_data["pfz_zones"][0]
+    assert "lat" in first_zone and "lon" in first_zone and "zone_id" in first_zone
+    assert "center" in state.map_data
+    assert state.map_data["zoom"] == 9
+
+
+def test_geofence_check_map_data(monkeypatch):
+    """geofence_check: map_data should contain current_position and zoom=8."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    state = run_query("Am I close to the maritime boundary?")
+
+    # geospatial_agent always runs for geofence_check and falls back to mock
+    # data ({current_position: {lat:15.5, lon:73.8}, nearest_boundary_point: ...}).
+    assert state.map_data is not None, "map_data should not be None for geofence_check"
+    assert "current_position" in state.map_data
+    pos = state.map_data["current_position"]
+    assert "lat" in pos and "lon" in pos
+    assert "center" in state.map_data
+    assert state.map_data["zoom"] == 8
+
+
+def test_explicit_user_location_passed_to_state(monkeypatch):
+    """GPS override: an explicit user_location passed to run_query must be
+    stored unchanged in TurnState, taking precedence over any inherited or
+    empty context value."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    gps = {"lat": 13.08, "lon": 80.27}
+    state = run_query(
+        "Where is the nearest fishing zone?",
+        user_location=gps,
+    )
+
+    assert state.user_location is not None, (
+        "user_location should not be None when GPS was provided"
+    )
+    assert state.user_location.get("lat") == gps["lat"], (
+        f"Expected lat={gps['lat']}, got {state.user_location.get('lat')}"
+    )
+    assert state.user_location.get("lon") == gps["lon"], (
+        f"Expected lon={gps['lon']}, got {state.user_location.get('lon')}"
+    )
