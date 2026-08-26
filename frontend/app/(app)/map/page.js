@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
@@ -34,9 +34,23 @@ function InfoTile({ label, value }) {
 }
 
 export default function MapExplorerPage() {
-  const { mapData, geoLocation } = useOrca();
+  const { mapData, geoLocation, runQuery, loading } = useOrca();
   const { t } = useLocale();
-  const [visibility, setVisibility] = useState({ pfz: true, hazard: true, routes: true, boundary: true });
+  const [visibility, setVisibility] = useState({
+    pfz: true,
+    hazard: true,
+    routes: true,
+    boundary: true,
+  });
+
+  // If the user opens Map Explorer directly (without asking a question in
+  // Chat first), mapData is still null. Auto-run a geofence check using the
+  // device's GPS so this page always shows live data, not stale placeholders.
+  useEffect(() => {
+    if (!mapData && !loading && geoLocation) {
+      runQuery("What is my current maritime zone status?");
+    }
+  }, [mapData, loading, geoLocation, runQuery]);
 
   const geo = mapData?.current_position ? mapData : null;
 
@@ -77,7 +91,13 @@ export default function MapExplorerPage() {
       </div>
 
       <div className={styles.mapWrap}>
-        <MapView mapData={mapData} layers={MAP_LAYERS} visibility={visibility} interactive gpsCenter={gpsCenter} />
+        <MapView
+          mapData={mapData}
+          layers={MAP_LAYERS}
+          visibility={visibility}
+          interactive
+          gpsCenter={gpsCenter}
+        />
       </div>
 
       <div className={styles.footer}>
@@ -95,21 +115,38 @@ export default function MapExplorerPage() {
             <h2>{t("map.locationInfo")}</h2>
             {geo && (
               <span className={styles.coord}>
-                {geo.current_position.lat.toFixed(2)}°N, {geo.current_position.lon.toFixed(2)}°E
+                {geo.current_position.lat.toFixed(2)}°N,{" "}
+                {geo.current_position.lon.toFixed(2)}°E
               </span>
             )}
           </div>
           <div className={styles.infoGrid}>
             <InfoTile
               label={t("map.zoneStatus")}
-              value={geo ? t(ZONE_STATUS_KEYS[geo.zone_status] ?? geo.zone_status) : t("map.withinSafeZone")}
+              value={
+                geo
+                  ? t(ZONE_STATUS_KEYS[geo.zone_status] ?? geo.zone_status)
+                  : t("map.withinSafeZone")
+              }
             />
-            <InfoTile label={t("map.distanceImbl")} value={geo ? `${geo.distance_to_imbl_nm} nm` : "--"} />
+            <InfoTile
+              label={t("map.distanceImbl")}
+              value={geo ? `${geo.distance_to_imbl_nm} nm` : "--"}
+            />
             <InfoTile
               label={t("map.withinImbl")}
-              value={geo ? (geo.zone_status === "crossed" ? t("common.no") : t("common.yes")) : t("common.yes")}
+              value={
+                geo
+                  ? geo.zone_status === "crossed"
+                    ? t("common.no")
+                    : t("common.yes")
+                  : t("common.yes")
+              }
             />
-            <InfoTile label={t("stat.seaCondition")} value={OVERVIEW.seaCondition} />
+            <InfoTile
+              label={t("stat.seaCondition")}
+              value={OVERVIEW.seaCondition}
+            />
           </div>
         </div>
       </div>

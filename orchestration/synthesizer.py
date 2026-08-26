@@ -271,18 +271,15 @@ def run(state: TurnState) -> TurnState:
         state.final_answer = "Unable to generate a response at this time."
         state.citations = []
         state.disclaimer = None
-        try:
-            state.trace.append(
-                TraceEntry(
-                    agent="synthesizer",
-                    action="produce_final_answer",
-                    input_summary="synthesis failed",
-                    output_summary="Returned a safe default response.",
-                    timestamp=datetime.now(tz=timezone.utc).isoformat(),
-                )
+        state.trace.append(
+            TraceEntry(
+                agent="synthesizer",
+                action="produce_final_answer",
+                input_summary="synthesis failed",
+                output_summary="Returned a safe default response.",
+                timestamp=datetime.now(tz=timezone.utc).isoformat(),
             )
-        except Exception:
-            pass
+        )
 
     # -----------------------------------------------------------------------
     # Populate map_data for the frontend MapView component.
@@ -311,10 +308,12 @@ def run(state: TurnState) -> TurnState:
                 if pfz_zones:
                     map_data = {
                         "pfz_zones": pfz_zones,
-                        "center": {"lat": pfz_zones[0]["lat"], "lon": pfz_zones[0]["lon"]},
+                        "center": {
+                            "lat": pfz_zones[0]["lat"],
+                            "lon": pfz_zones[0]["lon"],
+                        },
                         "zoom": 9,
                     }
-
         elif state.intent == "geofence_check":
             geo_out = state.agent_outputs.get("geospatial_agent")
             if geo_out is not None:
@@ -325,10 +324,13 @@ def run(state: TurnState) -> TurnState:
                     built["center"] = d["current_position"]
                 if "nearest_boundary_point" in d:
                     built["nearest_boundary_point"] = d["nearest_boundary_point"]
+                if "zone_status" in d:
+                    built["zone_status"] = d["zone_status"]
+                if "distance_to_imbl_nm" in d:
+                    built["distance_to_imbl_nm"] = d["distance_to_imbl_nm"]
                 built["zoom"] = 8
                 if built:
                     map_data = built
-
         elif state.intent in {"safe_to_sail", "weather_tide"}:
             loc = state.user_location
             if loc and "lat" in loc and "lon" in loc:
@@ -338,8 +340,12 @@ def run(state: TurnState) -> TurnState:
                 }
 
         state.map_data = map_data
-    except Exception:
-        # Never let map_data errors break the response; leave map_data as None.
-        pass
+    except Exception as e:
+        # Never let map_data errors break the response; leave map_data as None,
+        # but log so a silent failure here is never invisible again.
+        import traceback
+
+        print(f"map_data build failed: {e}")
+        traceback.print_exc()
 
     return state
