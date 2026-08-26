@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Topbar, LocationChip } from "@/components/shell/Topbar";
 import Panel from "@/components/ui/Panel";
@@ -8,6 +7,7 @@ import StatCard from "@/components/ui/StatCard";
 import { Badge, VerdictBadge } from "@/components/ui/Badge";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
+import { useMounted } from "@/lib/useMounted";
 import { OVERVIEW, ALERTS, DATA_SOURCES } from "@/lib/mockData";
 import { timeAgo } from "@/lib/format";
 import {
@@ -48,8 +48,7 @@ function greetingKey() {
 export default function DashboardPage() {
   const { savedQueries } = useOrca();
   const { t } = useLocale();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useMounted();
 
   return (
     <>
