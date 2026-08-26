@@ -71,9 +71,10 @@ function getSnapshot() {
   return snapshot;
 }
 
+const SERVER_SNAPSHOT = { latitude: null, longitude: null, status: "idle", tick: 0 };
 // Server snapshot — safe, static, never throws.
 function getServerSnapshot() {
-  return { latitude: null, longitude: null, status: "idle", tick: 0 };
+  return SERVER_SNAPSHOT;
 }
 
 /**

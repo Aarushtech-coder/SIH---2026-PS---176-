@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   defaultLocation: "Chennai, India",
   notifications: true,
   notificationSound: true,
-  voiceInput: false,
+  voiceInput: true,
   refreshInterval: "30",
   showDataSource: true,
 };

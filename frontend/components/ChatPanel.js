@@ -14,13 +14,18 @@ const VOICE_SUPPORTED =
 
 export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
   const { t } = useLocale();
-  const [settings] = useLocalStorage("orca.settings", { voiceInput: false });
+  const [settings] = useLocalStorage("orca.settings", { voiceInput: true });
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState(null);
+  const [mounted, setMounted] = useState(false);
   const listRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -72,7 +77,11 @@ export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
     }
   }
 
-  const voiceEnabled = settings.voiceInput && VOICE_SUPPORTED;
+  // Optimistic rendering: assume voice is enabled during SSR and hydration.
+  // This prevents the mic button from "popping in" late. If the user disabled it
+  // or the browser doesn't support it, it will gracefully disappear after mount.
+  const voiceEnabled = mounted ? (settings.voiceInput !== false && VOICE_SUPPORTED) : true;
+
 
   return (
     <section className={styles.panel}>
