@@ -1,35 +1,35 @@
 """
 ORCA - geospatial_agent.py
 Role 4 (Geospatial & Localization Engineer)
- 
+
 Implements the Agent Hand-off Contract (see orchestration/CONTRACTS.md):
 - run(state) writes state.agent_outputs["geospatial_agent"] = AgentOutput(data, source, timestamp)
 - Never raises; falls back to a clearly-marked MOCK response on any failure
 - Appends one TraceEntry to state.trace describing what happened
 """
- 
+
 from datetime import datetime, timezone
 import math
- 
+
 from orchestration.state import AgentOutput, TraceEntry, TurnState
- 
+
 try:
     from shapely.geometry import Point, shape
     from shapely.ops import nearest_points, unary_union
     import json
- 
+
     SHAPELY_AVAILABLE = True
 except ImportError:
     SHAPELY_AVAILABLE = False
- 
+
 BOUNDARY_GEOJSON_PATH = "data/india_imbl_eez.geojson"
 NM_PER_DEGREE_LAT = 60.0
- 
- 
+
+
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
- 
- 
+
+
 def _haversine_nm(lat1, lon1, lat2, lon2):
     """Fallback great-circle distance in nautical miles if shapely/geojson isn't available."""
     R_nm = 3440.065
@@ -41,8 +41,8 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     )
     return 2 * R_nm * math.asin(math.sqrt(a))
- 
- 
+
+
 def _load_boundary():
     """Merges ALL features in the file into one boundary -- India's EEZ
     is split across multiple polygons (mainland, Andaman & Nicobar,
@@ -51,16 +51,16 @@ def _load_boundary():
         geojson = json.load(f)
     geometries = [shape(feature["geometry"]) for feature in geojson["features"]]
     return unary_union(geometries)
- 
- 
+
+
 def _classify_zone(distance_nm: float, inside: bool) -> str:
     if inside:
         return "crossed"
     if distance_nm <= 5.0:
         return "approaching"
     return "safe"
- 
- 
+
+
 def _mock_output():
     return {
         "distance_to_imbl_nm": 42.0,
@@ -68,8 +68,8 @@ def _mock_output():
         "nearest_boundary_point": {"lat": 15.9, "lon": 74.1},
         "zone_status": "safe",
     }
- 
- 
+
+
 def run(state: TurnState) -> TurnState:
     """
     Geospatial agent entry point. Never raises.
@@ -79,15 +79,15 @@ def run(state: TurnState) -> TurnState:
         location = state.user_location
         if not location or "lat" not in location or "lon" not in location:
             raise ValueError("No coordinates provided in state.user_location")
- 
+
         lat, lon = location["lat"], location["lon"]
- 
+
         if not SHAPELY_AVAILABLE:
             raise RuntimeError("shapely not installed")
- 
+
         boundary = _load_boundary()
         point = Point(lon, lat)
- 
+
         inside = (
             boundary.contains(point)
             if boundary.geom_type.endswith("Polygon")
@@ -96,9 +96,9 @@ def run(state: TurnState) -> TurnState:
         )
         nearest_on_boundary, _ = nearest_points(boundary, point)
         nearest_lat, nearest_lon = nearest_on_boundary.y, nearest_on_boundary.x
- 
+
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
- 
+
         data = {
             "distance_to_imbl_nm": round(distance_nm, 2),
             "current_position": {"lat": lat, "lon": lon},
@@ -107,20 +107,20 @@ def run(state: TurnState) -> TurnState:
         }
         source = "India-EEZ-IMBL-MarineRegions"
         action_detail = f"Computed geofence: {data['zone_status']}, {data['distance_to_imbl_nm']} nm from IMBL"
- 
+
     except Exception as e:
         data = _mock_output()
         source = "MOCK"
         action_detail = f"Fell back to MOCK data due to: {e}"
- 
+
     timestamp = _now_iso()
- 
+
     state.agent_outputs["geospatial_agent"] = AgentOutput(
         data=data,
         source=source,
         timestamp=timestamp,
     )
- 
+
     state.trace.append(
         TraceEntry(
             agent="geospatial_agent",
@@ -130,5 +130,59 @@ def run(state: TurnState) -> TurnState:
             timestamp=timestamp,
         )
     )
- 
+
     return state
+
+
+def check_route_safety(start_lat, start_lon, end_lat, end_lon, num_points=20):
+    """
+    Check if a straight-line route crosses any restricted zone.
+    Returns: (is_safe, violation_point, safe_segment_distance)
+    """
+    try:
+        boundary = _load_boundary()
+        for i in range(num_points + 1):
+            fraction = i / num_points
+            lat = start_lat + (end_lat - start_lat) * fraction
+            lon = start_lon + (end_lon - start_lon) * fraction
+            point = Point(lon, lat)
+            inside = boundary.contains(point)
+
+            if not inside:
+                return False, (lat, lon), fraction * _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+
+        return True, None, _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+    except Exception:
+        # Fallback: report safe with no distance, rather than crash the caller
+        return True, None, 0
+
+
+def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
+    """
+    If direct route is unsafe, suggest a detour around the boundary.
+    Simple implementation: route through the nearest safe boundary point.
+    """
+    is_safe, violation_point, _ = check_route_safety(start_lat, start_lon, end_lat, end_lon)
+    if is_safe:
+        return [{"lat": start_lat, "lon": start_lon}, {"lat": end_lat, "lon": end_lon}]
+
+    boundary = _load_boundary()
+    point = Point(violation_point[1], violation_point[0])
+    nearest_on_boundary, _ = nearest_points(boundary, point)
+
+    return [
+        {"lat": start_lat, "lon": start_lon},
+        {"lat": nearest_on_boundary.y, "lon": nearest_on_boundary.x},
+        {"lat": end_lat, "lon": end_lon},
+    ]
+
+
+def distance_to_imbl(lat, lon):
+    """Calculate distance in nautical miles from any point to the IMBL."""
+    try:
+        boundary = _load_boundary()
+        point = Point(lon, lat)
+        nearest_on_boundary, _ = nearest_points(boundary, point)
+        return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
+    except Exception:
+        return 999.0  # Fallback: treat as far away rather than crash
