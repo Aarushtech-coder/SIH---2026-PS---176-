@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Topbar, LocationChip } from "@/components/shell/Topbar";
 import Panel from "@/components/ui/Panel";
@@ -47,6 +48,8 @@ function greetingKey() {
 export default function DashboardPage() {
   const { savedQueries } = useOrca();
   const { t } = useLocale();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   return (
     <>
@@ -59,7 +62,7 @@ export default function DashboardPage() {
       <div className={styles.content}>
         <Panel
           title={t("dashboard.overviewTitle")}
-          action={<span>{t("dashboard.updated")} {timeAgo(OVERVIEW.lastUpdated, t)}</span>}
+          action={<span>{t("dashboard.updated")} {mounted ? timeAgo(OVERVIEW.lastUpdated, t) : ""}</span>}
         >
           <div className={styles.statGrid}>
             <StatCard icon={IconWave} label={t("stat.seaCondition")} value={OVERVIEW.seaCondition} tone="accent" />
@@ -114,7 +117,7 @@ export default function DashboardPage() {
                     <Link href={`/chat?q=${encodeURIComponent(q.text)}`} className={styles.queryRow}>
                       <div className={styles.queryMain}>
                         <div className={styles.queryText}>{q.text}</div>
-                        <div className={styles.queryTime}>{timeAgo(q.timestamp, t)}</div>
+                        <div className={styles.queryTime}>{mounted ? timeAgo(q.timestamp, t) : ""}</div>
                       </div>
                       {q.verdict ? <VerdictBadge verdict={q.verdict} /> : <Badge>{t(INTENT_KEYS[q.intent] ?? q.intent)}</Badge>}
                     </Link>
