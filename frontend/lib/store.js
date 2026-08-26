@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 import { sendQuery, sendVoiceQuery } from "./api";
 import { useLocalStorage } from "./useLocalStorage";
 import { useGeolocation } from "./useGeolocation";
@@ -20,18 +26,29 @@ export function OrcaProvider({ children }) {
   const [pipeline, setPipeline] = useState([]);
   const [mapData, setMapData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [savedQueries, setSavedQueries] = useLocalStorage("orca.savedQueries", []);
+  const [savedQueries, setSavedQueries] = useLocalStorage(
+    "orca.savedQueries",
+    [],
+  );
 
   // GPS — single read per session; exposed so any component can consume it.
-  const { latitude, longitude, status: geoStatus, retry: retryGeo } = useGeolocation();
+  const {
+    latitude,
+    longitude,
+    status: geoStatus,
+    retry: retryGeo,
+  } = useGeolocation();
   const geoLocation = useMemo(
     () => (geoStatus === "granted" ? { latitude, longitude } : null),
-    [geoStatus, latitude, longitude]
+    [geoStatus, latitude, longitude],
   );
 
   const finishTurn = useCallback(
     (turnState, queryText) => {
-      setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "assistant", turnState }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: `${Date.now()}-a`, role: "assistant", turnState },
+      ]);
       setMapData(turnState.map_data);
 
       setSavedQueries((prev) =>
@@ -44,10 +61,10 @@ export function OrcaProvider({ children }) {
             timestamp: new Date().toISOString(),
           },
           ...prev,
-        ].slice(0, 50)
+        ].slice(0, 50),
       );
     },
-    [setSavedQueries]
+    [setSavedQueries],
   );
 
   const failTurn = useCallback((err) => {
@@ -58,17 +75,22 @@ export function OrcaProvider({ children }) {
   }, []);
 
   const runQuery = useCallback(
-    async (text) => {
+    async (text, coordsOverride) => {
       const query = text.trim();
       if (!query) return;
 
-      setMessages((prev) => [...prev, { id: `${Date.now()}-u`, role: "user", text: query }]);
+      const coords = coordsOverride || geoLocation;
+
+      setMessages((prev) => [
+        ...prev,
+        { id: `${Date.now()}-u`, role: "user", text: query },
+      ]);
       setTrace([]);
       setPipeline([]);
       setLoading(true);
 
       try {
-        const turnState = await sendQuery(query, geoLocation, {
+        const turnState = await sendQuery(query, coords, {
           onPlan: (agents) => setPipeline(agents),
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
         });
@@ -79,7 +101,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn, geoLocation]
+    [finishTurn, failTurn, geoLocation],
   );
 
   // Records->transcribe flow: the user's message bubble starts "pending"
@@ -88,7 +110,10 @@ export function OrcaProvider({ children }) {
   const runVoiceQuery = useCallback(
     async (audioBlob) => {
       const userMsgId = `${Date.now()}-u`;
-      setMessages((prev) => [...prev, { id: userMsgId, role: "user", text: null, pending: true }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: userMsgId, role: "user", text: null, pending: true },
+      ]);
       setTrace([]);
       setPipeline([]);
       setLoading(true);
@@ -99,8 +124,15 @@ export function OrcaProvider({ children }) {
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
         });
 
-        const transcribed = turnState.transcribed_text || turnState.raw_query || "";
-        setMessages((prev) => prev.map((m) => (m.id === userMsgId ? { ...m, text: transcribed, pending: false } : m)));
+        const transcribed =
+          turnState.transcribed_text || turnState.raw_query || "";
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === userMsgId
+              ? { ...m, text: transcribed, pending: false }
+              : m,
+          ),
+        );
         finishTurn(turnState, transcribed);
       } catch (err) {
         setMessages((prev) => prev.filter((m) => m.id !== userMsgId));
@@ -109,14 +141,17 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn]
+    [finishTurn, failTurn],
   );
 
-  const clearSavedQueries = useCallback(() => setSavedQueries([]), [setSavedQueries]);
+  const clearSavedQueries = useCallback(
+    () => setSavedQueries([]),
+    [setSavedQueries],
+  );
 
   const removeSavedQuery = useCallback(
     (id) => setSavedQueries((prev) => prev.filter((q) => q.id !== id)),
-    [setSavedQueries]
+    [setSavedQueries],
   );
 
   const value = {

@@ -43,6 +43,16 @@ export default function MapExplorerPage() {
     boundary: true,
   });
 
+  // Demo location override — lets us show the pipeline working with real
+  // coastal data during a demo, even when the device's real GPS is inland
+  // (e.g. testing from an office/venue far from the sea). null = use real GPS.
+  const DEMO_LOCATIONS = {
+    goa: { label: "Goa", lat: 15.5, lon: 73.5 },
+    chennai: { label: "Chennai", lat: 13.08, lon: 80.27 },
+    mumbai: { label: "Mumbai", lat: 18.94, lon: 72.84 },
+  };
+  const [demoLocation, setDemoLocation] = useState(null);
+
   // If the user opens Map Explorer directly (without asking a question in
   // Chat first), mapData is still null. Auto-run a geofence check using the
   // device's GPS so this page always shows live data, not stale placeholders.
