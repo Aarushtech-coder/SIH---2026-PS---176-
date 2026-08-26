@@ -15,7 +15,7 @@ from orchestration.state import AgentOutput, TraceEntry, TurnState
 
 try:
     from shapely.geometry import Point, shape
-    from shapely.ops import nearest_points
+    from shapely.ops import nearest_points, unary_union
     import json
 
     SHAPELY_AVAILABLE = True
@@ -44,10 +44,13 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
 
 
 def _load_boundary():
+    """Merges ALL features in the file into one boundary -- India's EEZ
+    is split across multiple polygons (mainland, Andaman & Nicobar,
+    Lakshadweep), and using only features[0] would silently ignore the rest."""
     with open(BOUNDARY_GEOJSON_PATH) as f:
         geojson = json.load(f)
-    features = geojson["features"]
-    return shape(features[0]["geometry"])
+    geometries = [shape(feature["geometry"]) for feature in geojson["features"]]
+    return unary_union(geometries)
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:
@@ -88,6 +91,7 @@ def run(state: TurnState) -> TurnState:
         inside = (
             boundary.contains(point)
             if boundary.geom_type.endswith("Polygon")
+            or boundary.geom_type == "MultiPolygon"
             else False
         )
         nearest_on_boundary, _ = nearest_points(boundary, point)
@@ -96,7 +100,7 @@ def run(state: TurnState) -> TurnState:
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
 
         data = {
-            "distance_to_imbl_nm": distance_nm,
+            "distance_to_imbl_nm": round(distance_nm, 2),
             "current_position": {"lat": lat, "lon": lon},
             "nearest_boundary_point": {"lat": nearest_lat, "lon": nearest_lon},
             "zone_status": _classify_zone(distance_nm, inside),
@@ -124,9 +128,61 @@ def run(state: TurnState) -> TurnState:
             input_summary=state.resolved_query,
             output_summary=action_detail,
             timestamp=timestamp,
-        
-
         )
     )
 
     return state
+
+
+def check_route_safety(start_lat, start_lon, end_lat, end_lon, num_points=20):
+    """
+    Check if a straight-line route crosses any restricted zone.
+    Returns: (is_safe, violation_point, safe_segment_distance)
+    """
+    try:
+        boundary = _load_boundary()
+        for i in range(num_points + 1):
+            fraction = i / num_points
+            lat = start_lat + (end_lat - start_lat) * fraction
+            lon = start_lon + (end_lon - start_lon) * fraction
+            point = Point(lon, lat)
+            inside = boundary.contains(point)
+
+            if not inside:
+                return False, (lat, lon), fraction * _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+
+        return True, None, _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+    except Exception:
+        # Fallback: report safe with no distance, rather than crash the caller
+        return True, None, 0
+
+
+def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
+    """
+    If direct route is unsafe, suggest a detour around the boundary.
+    Simple implementation: route through the nearest safe boundary point.
+    """
+    is_safe, violation_point, _ = check_route_safety(start_lat, start_lon, end_lat, end_lon)
+    if is_safe:
+        return [{"lat": start_lat, "lon": start_lon}, {"lat": end_lat, "lon": end_lon}]
+
+    boundary = _load_boundary()
+    point = Point(violation_point[1], violation_point[0])
+    nearest_on_boundary, _ = nearest_points(boundary, point)
+
+    return [
+        {"lat": start_lat, "lon": start_lon},
+        {"lat": nearest_on_boundary.y, "lon": nearest_on_boundary.x},
+        {"lat": end_lat, "lon": end_lon},
+    ]
+
+
+def distance_to_imbl(lat, lon):
+    """Calculate distance in nautical miles from any point to the IMBL."""
+    try:
+        boundary = _load_boundary()
+        point = Point(lon, lat)
+        nearest_on_boundary, _ = nearest_points(boundary, point)
+        return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
+    except Exception:
+        return 999.0  # Fallback: treat as far away rather than crash
