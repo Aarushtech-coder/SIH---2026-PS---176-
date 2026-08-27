@@ -88,6 +88,19 @@ export default function MapExplorerPage() {
 
   const geo = mapData?.current_position ? mapData : null;
 
+  // The static MAP_LAYERS PFZ zones are illustrative mock data sitting near
+  // Chennai's coordinates. Once we have real zones for the current dashboard
+  // location (GPS, default, or a clicked pin -- refreshDashboardSnapshot
+  // already fetches these), show those instead so PFZ markers actually
+  // track whichever region is being looked at.
+  const realPfzZones = dashboardSnapshot.pfzZones
+    ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
+    .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
+  const layers = {
+    ...MAP_LAYERS,
+    pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
+  };
+
   // Convert store's {latitude, longitude} shape to MapView's {lat, lon} shape.
   const gpsCenter = geoLocation
     ? { lat: geoLocation.latitude, lon: geoLocation.longitude }
@@ -128,7 +141,7 @@ export default function MapExplorerPage() {
       <div className={styles.mapWrap}>
         <MapView
           mapData={mapData}
-          layers={MAP_LAYERS}
+          layers={layers}
           visibility={visibility}
           interactive
           gpsCenter={gpsCenter}
