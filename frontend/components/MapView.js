@@ -1,6 +1,15 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Circle } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  CircleMarker,
+  Circle,
+  useMapEvents,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapView.module.css";
@@ -10,7 +19,8 @@ import { useLocale } from "@/lib/i18n/LocaleContext";
 // output and break under Next.js -- point them at the CDN copies instead.
 const pinIcon = L.icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
@@ -27,6 +37,28 @@ const COLOR = {
   gps: "#7c3aed",
 };
 
+// const COLOR = {
+//   pfz: "#16a34a",
+//   hazard: "#dc2626",
+//   route: "#2a6fdb",
+//   boundary: "#5b6b83",
+//   location: "#2a6fdb",
+//   gps: "#7c3aed",
+//   pin: "#ea580c",
+// };
+
+// Listens for map clicks and reports the clicked lat/lon up to the parent
+// via onLocationSelect. Must live inside <MapContainer> to access the map
+// instance (react-leaflet requirement).
+function ClickHandler({ onLocationSelect }) {
+  useMapEvents({
+    click(e) {
+      onLocationSelect?.({ lat: e.latlng.lat, lon: e.latlng.lng });
+    },
+  });
+  return null;
+}
+
 /**
  * @param {object} props
  * @param {object|null} [props.mapData]   - Data returned from a query response.
@@ -35,11 +67,20 @@ const COLOR = {
  * @param {boolean}     [props.interactive]
  * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
  */
-export default function MapView({ mapData, layers, visibility = {}, interactive = true, gpsCenter = null }) {
+export default function MapView({
+  mapData,
+  layers,
+  visibility = {},
+  interactive = true,
+  gpsCenter = null,
+  onLocationSelect = null,
+  selectedPin = null,
+}) {
   const { t } = useLocale();
 
   // Center priority: query response > static layers > live GPS > Chennai default
-  const center = mapData?.center ?? layers?.center ?? gpsCenter ?? DEFAULT_CENTER;
+  const center =
+    mapData?.center ?? layers?.center ?? gpsCenter ?? DEFAULT_CENTER;
   const zoom = mapData?.zoom ?? layers?.zoom ?? 9;
 
   // Show a GPS marker only when we have a live position AND the query hasn't
@@ -67,9 +108,29 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {onLocationSelect && (
+          <ClickHandler onLocationSelect={onLocationSelect} />
+        )}
+
+        {selectedPin && (
+          <Marker position={[selectedPin.lat, selectedPin.lon]} icon={pinIcon}>
+            <Popup>{t("map.currentPosition")}</Popup>
+          </Marker>
+        )}
+
         {visibility.pfz &&
           layers?.pfzZones?.map((z) => (
-            <CircleMarker key={z.id} center={[z.lat, z.lon]} radius={9} pathOptions={{ color: COLOR.pfz, fillOpacity: 0.55, weight: 2 }}>
+            <CircleMarker
+              key={z.id}
+              center={[z.lat, z.lon]}
+              radius={9}
+              pathOptions={{ color: COLOR.pfz, fillOpacity: 0.55, weight: 2 }}
+            >
               <Popup>{z.id}</Popup>
             </CircleMarker>
           ))}
@@ -80,7 +141,12 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
               key={hz.id}
               center={[hz.lat, hz.lon]}
               radius={hz.radiusKm * 1000}
-              pathOptions={{ color: COLOR.hazard, fillOpacity: 0.12, weight: 2, dashArray: "5 5" }}
+              pathOptions={{
+                color: COLOR.hazard,
+                fillOpacity: 0.12,
+                weight: 2,
+                dashArray: "5 5",
+              }}
             >
               <Popup>{hz.label}</Popup>
             </Circle>
@@ -88,29 +154,55 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
 
         {visibility.routes &&
           layers?.fishingRoutes?.map((r) => (
-            <Polyline key={r.id} positions={r.points} pathOptions={{ color: COLOR.route, weight: 2.5, dashArray: "1 7", lineCap: "round" }}>
+            <Polyline
+              key={r.id}
+              positions={r.points}
+              pathOptions={{
+                color: COLOR.route,
+                weight: 2.5,
+                dashArray: "1 7",
+                lineCap: "round",
+              }}
+            >
               <Popup>{r.label}</Popup>
             </Polyline>
           ))}
 
         {visibility.boundary && layers?.boundary && (
-          <Polyline positions={layers.boundary} pathOptions={{ color: COLOR.boundary, weight: 2, dashArray: "6 6" }} />
+          <Polyline
+            positions={layers.boundary}
+            pathOptions={{ color: COLOR.boundary, weight: 2, dashArray: "6 6" }}
+          />
         )}
 
         {layers?.landingCentre && (
-          <Marker position={[layers.landingCentre.lat, layers.landingCentre.lon]} icon={pinIcon}>
+          <Marker
+            position={[layers.landingCentre.lat, layers.landingCentre.lon]}
+            icon={pinIcon}
+          >
             <Popup>{t("map.landingCentre")}</Popup>
           </Marker>
         )}
 
         {mapData?.pfz_zones?.map((z) => (
-          <CircleMarker key={`turn-${z.zone_id}`} center={[z.lat, z.lon]} radius={10} pathOptions={{ color: COLOR.pfz, fillOpacity: 0.75, weight: 2.5 }}>
+          <CircleMarker
+            key={`turn-${z.zone_id}`}
+            center={[z.lat, z.lon]}
+            radius={10}
+            pathOptions={{ color: COLOR.pfz, fillOpacity: 0.75, weight: 2.5 }}
+          >
             <Popup>{z.zone_id}</Popup>
           </CircleMarker>
         ))}
 
         {mapData?.current_position && (
-          <Marker position={[mapData.current_position.lat, mapData.current_position.lon]} icon={pinIcon}>
+          <Marker
+            position={[
+              mapData.current_position.lat,
+              mapData.current_position.lon,
+            ]}
+            icon={pinIcon}
+          >
             <Popup>{t("map.currentPosition")}</Popup>
           </Marker>
         )}
@@ -118,9 +210,16 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
         {mapData?.nearest_boundary_point && (
           <>
             <CircleMarker
-              center={[mapData.nearest_boundary_point.lat, mapData.nearest_boundary_point.lon]}
+              center={[
+                mapData.nearest_boundary_point.lat,
+                mapData.nearest_boundary_point.lon,
+              ]}
               radius={7}
-              pathOptions={{ color: COLOR.hazard, fillOpacity: 0.75, weight: 2 }}
+              pathOptions={{
+                color: COLOR.hazard,
+                fillOpacity: 0.75,
+                weight: 2,
+              }}
             >
               <Popup>{t("map.nearestBoundaryPoint")}</Popup>
             </CircleMarker>
@@ -128,9 +227,16 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
               <Polyline
                 positions={[
                   [mapData.current_position.lat, mapData.current_position.lon],
-                  [mapData.nearest_boundary_point.lat, mapData.nearest_boundary_point.lon],
+                  [
+                    mapData.nearest_boundary_point.lat,
+                    mapData.nearest_boundary_point.lon,
+                  ],
                 ]}
-                pathOptions={{ color: COLOR.hazard, dashArray: "6 6", weight: 2 }}
+                pathOptions={{
+                  color: COLOR.hazard,
+                  dashArray: "6 6",
+                  weight: 2,
+                }}
               />
             )}
           </>
@@ -141,7 +247,12 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
           <CircleMarker
             center={[gpsCenter.lat, gpsCenter.lon]}
             radius={8}
-            pathOptions={{ color: COLOR.gps, fillColor: COLOR.gps, fillOpacity: 0.9, weight: 2 }}
+            pathOptions={{
+              color: COLOR.gps,
+              fillColor: COLOR.gps,
+              fillOpacity: 0.9,
+              weight: 2,
+            }}
           >
             <Popup>{t("map.currentPosition")}</Popup>
           </CircleMarker>
@@ -149,7 +260,9 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
       </MapContainer>
 
       {!interactive && <div className={styles.previewOverlay} />}
-      {!mapData && !layers && <div className={styles.hint}>{t("map.noData")}</div>}
+      {!mapData && !layers && (
+        <div className={styles.hint}>{t("map.noData")}</div>
+      )}
     </div>
   );
 }
