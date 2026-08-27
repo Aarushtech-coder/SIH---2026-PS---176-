@@ -68,6 +68,18 @@ export default function MapExplorerPage() {
     }
   }, [mapData, loading, geoLocation, runQuery]);
 
+  const [pendingPoint, setPendingPoint] = useState(null);
+
+  // Click-to-inspect: fires the same kind of geospatial query the page
+  // auto-runs on load, but for whatever point the user clicked instead of
+  // their GPS position. runQuery already supports an explicit coords
+  // override for exactly this.
+  function handleMapClick(lat, lon) {
+    if (loading) return;
+    setPendingPoint({ lat, lon });
+    runQuery(t("map.clickQuery"), { latitude: lat, longitude: lon }).finally(() => setPendingPoint(null));
+  }
+
   const geo = mapData?.current_position ? mapData : null;
 
   // Convert store's {latitude, longitude} shape to MapView's {lat, lon} shape.
@@ -104,6 +116,7 @@ export default function MapExplorerPage() {
             {t(labelKey)}
           </button>
         ))}
+        <span className={styles.clickHint}>{t("map.clickHint")}</span>
       </div>
 
       <div className={styles.mapWrap}>
@@ -113,6 +126,8 @@ export default function MapExplorerPage() {
           visibility={visibility}
           interactive
           gpsCenter={gpsCenter}
+          onLocationClick={handleMapClick}
+          pendingPoint={pendingPoint}
         />
       </div>
 
