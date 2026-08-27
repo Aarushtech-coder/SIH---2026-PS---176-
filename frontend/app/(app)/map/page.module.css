@@ -29,8 +29,15 @@
 .toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   padding: 0 1.75rem 0.9rem;
+}
+
+.clickHint {
+  margin-left: auto;
+  font-size: 0.76rem;
+  color: var(--text-muted);
 }
 
 .layerChip {

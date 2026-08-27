@@ -28,6 +28,17 @@ const pinIcon = L.icon({
 
 const DEFAULT_CENTER = { lat: 13.0827, lon: 80.2707 }; // Chennai, fallback only
 
+// Bridges Leaflet's native click event out to React -- must be a child of
+// MapContainer (react-leaflet's hooks only work inside the map context).
+function ClickHandler({ onLocationClick }) {
+  useMapEvents({
+    click(e) {
+      onLocationClick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 const COLOR = {
   pfz: "#16a34a",
   hazard: "#dc2626",
@@ -37,28 +48,6 @@ const COLOR = {
   gps: "#7c3aed",
 };
 
-// const COLOR = {
-//   pfz: "#16a34a",
-//   hazard: "#dc2626",
-//   route: "#2a6fdb",
-//   boundary: "#5b6b83",
-//   location: "#2a6fdb",
-//   gps: "#7c3aed",
-//   pin: "#ea580c",
-// };
-
-// Listens for map clicks and reports the clicked lat/lon up to the parent
-// via onLocationSelect. Must live inside <MapContainer> to access the map
-// instance (react-leaflet requirement).
-function ClickHandler({ onLocationSelect }) {
-  useMapEvents({
-    click(e) {
-      onLocationSelect?.({ lat: e.latlng.lat, lon: e.latlng.lng });
-    },
-  });
-  return null;
-}
-
 /**
  * @param {object} props
  * @param {object|null} [props.mapData]   - Data returned from a query response.
@@ -66,6 +55,8 @@ function ClickHandler({ onLocationSelect }) {
  * @param {object}      [props.visibility]
  * @param {boolean}     [props.interactive]
  * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
+ * @param {(lat: number, lon: number) => void} [props.onLocationClick] - Called when the user clicks the map.
+ * @param {{lat:number,lon:number}|null} [props.pendingPoint] - A just-clicked point still waiting on its query response.
  */
 export default function MapView({
   mapData,
@@ -73,8 +64,8 @@ export default function MapView({
   visibility = {},
   interactive = true,
   gpsCenter = null,
-  onLocationSelect = null,
-  selectedPin = null,
+  onLocationClick,
+  pendingPoint,
 }) {
   const { t } = useLocale();
 
@@ -86,6 +77,14 @@ export default function MapView({
   // Show a GPS marker only when we have a live position AND the query hasn't
   // already provided a current_position (to avoid double-pinning).
   const showGpsMarker = gpsCenter && !mapData?.current_position;
+
+  // hazardZones/fishingRoutes have no real backend source (orchestration has
+  // no hazard-zone or route data at all) -- they're fixed illustrative
+  // markers sitting near Chennai's coordinates. Once we actually know where
+  // the user is (real GPS or a clicked/queried point), keep showing them
+  // would just mean stale Chennai pins next to the real location. Only show
+  // them as a placeholder before we know any real position.
+  const hasRealPosition = Boolean(gpsCenter || mapData?.current_position);
 
   return (
     <div className={styles.wrap}>
@@ -101,27 +100,13 @@ export default function MapView({
         boxZoom={interactive}
         keyboard={interactive}
         attributionControl={interactive}
-        className={styles.map}
+        className={`${styles.map} ${interactive && onLocationClick ? styles.clickable : ""}`}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-
-        {onLocationSelect && (
-          <ClickHandler onLocationSelect={onLocationSelect} />
-        )}
-
-        {selectedPin && (
-          <Marker position={[selectedPin.lat, selectedPin.lon]} icon={pinIcon}>
-            <Popup>{t("map.currentPosition")}</Popup>
-          </Marker>
-        )}
+        {onLocationClick && <ClickHandler onLocationClick={onLocationClick} />}
 
         {visibility.pfz &&
           layers?.pfzZones?.map((z) => (
@@ -136,6 +121,7 @@ export default function MapView({
           ))}
 
         {visibility.hazard &&
+          !hasRealPosition &&
           layers?.hazardZones?.map((hz) => (
             <Circle
               key={hz.id}
@@ -153,6 +139,7 @@ export default function MapView({
           ))}
 
         {visibility.routes &&
+          !hasRealPosition &&
           layers?.fishingRoutes?.map((r) => (
             <Polyline
               key={r.id}

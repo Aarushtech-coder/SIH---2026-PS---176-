@@ -10,8 +10,15 @@ import {
 import { sendQuery, sendVoiceQuery } from "./api";
 import { useLocalStorage } from "./useLocalStorage";
 import { useGeolocation } from "./useGeolocation";
+import { haversineKm } from "./format";
 
 const OrcaContext = createContext(null);
+
+// Default fallback location (Chennai) -- used only when the browser hasn't
+// granted GPS access, same default already used elsewhere in the app
+// (LocationChip, MAP_LAYERS). The dashboard flags in its UI when this
+// fallback is in use rather than presenting it as the user's real position.
+const DEFAULT_LOCATION = { latitude: 13.0827, longitude: 80.2707 };
 
 function extractVerdict(turnState) {
   return turnState.agent_outputs?.risk_agent?.data?.verdict ?? null;
@@ -30,6 +37,17 @@ export function OrcaProvider({ children }) {
     "orca.savedQueries",
     [],
   );
+  const [dashboardSnapshot, setDashboardSnapshot] = useState({
+    status: "idle", // idle | loading | ready | error
+    weather: null,
+    risk: null,
+    ocean: null,
+    pfzZones: [],
+    nearestPfzKm: null,
+    fetchedAt: null,
+    location: null,
+    source: "default", // "gps" | "default" | "pin" -- where `location` came from
+  });
 
   // GPS — single read per session; exposed so any component can consume it.
   const {
@@ -49,7 +67,13 @@ export function OrcaProvider({ children }) {
         ...prev,
         { id: `${Date.now()}-a`, role: "assistant", turnState },
       ]);
-      setMapData(turnState.map_data);
+
+      // Some intents (e.g. safe_to_sail) don't run geospatial_agent at all,
+      // so their map_data is always null -- overwriting mapData with that
+      // null used to wipe out whatever real position (a click, GPS, a prior
+      // nearest_pfz/geofence answer) was already showing on Map Explorer.
+      // Only replace mapData when this turn actually provided some.
+      if (turnState.map_data) setMapData(turnState.map_data);
 
       setSavedQueries((prev) =>
         [
@@ -79,7 +103,13 @@ export function OrcaProvider({ children }) {
       const query = text.trim();
       if (!query) return;
 
-      const coords = coordsOverride || geoLocation;
+      // Without a coordinate fallback here, a chat question asked before GPS
+      // is granted sends no location at all -- the backend's geospatial_agent
+      // then has nothing to work with and silently falls back to its own
+      // hardcoded mock answer (42 nm / 15.9,74.1 / "safe"), even though the
+      // pipeline is otherwise fully live. Dashboard and Map Explorer already
+      // fall back to this same default; Chat should too.
+      const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
 
       setMessages((prev) => [
         ...prev,
@@ -119,7 +149,8 @@ export function OrcaProvider({ children }) {
       setLoading(true);
 
       try {
-        const turnState = await sendVoiceQuery(audioBlob, {
+        const coords = geoLocation || DEFAULT_LOCATION;
+        const turnState = await sendVoiceQuery(audioBlob, coords, {
           onPlan: (agents) => setPipeline(agents),
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
         });
@@ -141,8 +172,56 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn],
+    [finishTurn, failTurn, geoLocation],
   );
+
+  // Silent background fetch for the Dashboard's overview tiles -- unlike
+  // runQuery, this never touches messages/savedQueries, so it doesn't show
+  // up as a fake chat turn just because the dashboard loaded.
+  //
+  // coordsOverride lets a caller (e.g. a map pin click) fetch the dashboard
+  // tiles for a specific spot instead of the user's own GPS/default location
+  // -- same idea as runQuery's coordsOverride.
+  const refreshDashboardSnapshot = useCallback(async (coordsOverride) => {
+    const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
+    const source = coordsOverride ? "pin" : geoLocation ? "gps" : "default";
+
+    setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
+
+    try {
+      const [safeState, pfzState] = await Promise.all([
+        sendQuery("What are the current wind and wave conditions, and is it safe to sail?", coords),
+        sendQuery("Where is the nearest fishing zone?", coords),
+      ]);
+
+      const weather = safeState.agent_outputs?.weather_agent?.data ?? null;
+      const risk = safeState.agent_outputs?.risk_agent?.data ?? null;
+      const ocean = safeState.agent_outputs?.ocean_analytics_agent?.data ?? null;
+      const pfzZones = pfzState.agent_outputs?.marine_data_agent?.data?.pfz_zones ?? [];
+
+      // marine_data_agent's own distance_from_coast_km is currently a
+      // documented Phase-1 sentinel (-1.0, not implemented upstream yet) --
+      // zone lat/lon are real, so compute the actual distance from here
+      // instead of trusting that field.
+      const distances = pfzZones
+        .filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
+        .map((z) => haversineKm(coords.latitude, coords.longitude, z.latitude, z.longitude));
+
+      setDashboardSnapshot({
+        status: "ready",
+        weather,
+        risk,
+        ocean,
+        pfzZones,
+        nearestPfzKm: distances.length ? Math.min(...distances) : null,
+        fetchedAt: new Date().toISOString(),
+        location: coords,
+        source,
+      });
+    } catch (err) {
+      setDashboardSnapshot((prev) => ({ ...prev, status: "error", error: err?.message || "" }));
+    }
+  }, [geoLocation]);
 
   const clearSavedQueries = useCallback(
     () => setSavedQueries([]),
@@ -165,6 +244,8 @@ export function OrcaProvider({ children }) {
     savedQueries,
     clearSavedQueries,
     removeSavedQuery,
+    dashboardSnapshot,
+    refreshDashboardSnapshot,
     // GPS state
     geoLocation,
     geoStatus,
