@@ -73,14 +73,33 @@ export default function MapExplorerPage() {
   // Click-to-inspect: fires the same kind of geospatial query the page
   // auto-runs on load, but for whatever point the user clicked instead of
   // their GPS position. runQuery already supports an explicit coords
-  // override for exactly this.
+  // override for exactly this. Also refreshes the Dashboard's overview
+  // tiles for that same point, so weather/risk/sea-temp there reflect the
+  // pinned region too, not just this page's own info panel.
   function handleMapClick(lat, lon) {
     if (loading) return;
     setPendingPoint({ lat, lon });
-    runQuery(t("map.clickQuery"), { latitude: lat, longitude: lon }).finally(() => setPendingPoint(null));
+    const coords = { latitude: lat, longitude: lon };
+    Promise.all([
+      runQuery(t("map.clickQuery"), coords),
+      refreshDashboardSnapshot(coords),
+    ]).finally(() => setPendingPoint(null));
   }
 
   const geo = mapData?.current_position ? mapData : null;
+
+  // The static MAP_LAYERS PFZ zones are illustrative mock data sitting near
+  // Chennai's coordinates. Once we have real zones for the current dashboard
+  // location (GPS, default, or a clicked pin -- refreshDashboardSnapshot
+  // already fetches these), show those instead so PFZ markers actually
+  // track whichever region is being looked at.
+  const realPfzZones = dashboardSnapshot.pfzZones
+    ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
+    .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
+  const layers = {
+    ...MAP_LAYERS,
+    pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
+  };
 
   // Convert store's {latitude, longitude} shape to MapView's {lat, lon} shape.
   const gpsCenter = geoLocation
@@ -122,7 +141,7 @@ export default function MapExplorerPage() {
       <div className={styles.mapWrap}>
         <MapView
           mapData={mapData}
-          layers={MAP_LAYERS}
+          layers={layers}
           visibility={visibility}
           interactive
           gpsCenter={gpsCenter}

@@ -59,13 +59,25 @@ export default function MapView({
 }) {
   const { t } = useLocale();
 
-  // Center priority: query response > static layers > live GPS > Chennai default
-  const center = mapData?.center ?? layers?.center ?? gpsCenter ?? DEFAULT_CENTER;
+  // Center priority: query/click response > live GPS > static mock layers > Chennai default.
+  // (The backend's map_data never actually sets a "center" field -- only
+  // current_position -- so that used to be checked first, which meant this
+  // always fell through to the mock layers' hardcoded Chennai center even
+  // when real GPS or a clicked point was available.)
+  const center = mapData?.current_position ?? gpsCenter ?? layers?.center ?? DEFAULT_CENTER;
   const zoom = mapData?.zoom ?? layers?.zoom ?? 9;
 
   // Show a GPS marker only when we have a live position AND the query hasn't
   // already provided a current_position (to avoid double-pinning).
   const showGpsMarker = gpsCenter && !mapData?.current_position;
+
+  // hazardZones/fishingRoutes have no real backend source (orchestration has
+  // no hazard-zone or route data at all) -- they're fixed illustrative
+  // markers sitting near Chennai's coordinates. Once we actually know where
+  // the user is (real GPS or a clicked/queried point), keep showing them
+  // would just mean stale Chennai pins next to the real location. Only show
+  // them as a placeholder before we know any real position.
+  const hasRealPosition = Boolean(gpsCenter || mapData?.current_position);
 
   return (
     <div className={styles.wrap}>
@@ -107,6 +119,7 @@ export default function MapView({
           ))}
 
         {visibility.hazard &&
+          !hasRealPosition &&
           layers?.hazardZones?.map((hz) => (
             <Circle
               key={hz.id}
@@ -119,6 +132,7 @@ export default function MapView({
           ))}
 
         {visibility.routes &&
+          !hasRealPosition &&
           layers?.fishingRoutes?.map((r) => (
             <Polyline key={r.id} positions={r.points} pathOptions={{ color: COLOR.route, weight: 2.5, dashArray: "1 7", lineCap: "round" }}>
               <Popup>{r.label}</Popup>
@@ -129,7 +143,11 @@ export default function MapView({
           <Polyline positions={layers.boundary} pathOptions={{ color: COLOR.boundary, weight: 2, dashArray: "6 6" }} />
         )}
 
-        {layers?.landingCentre && (
+        {/* Mock illustrative harbour marker -- only shown as a last-resort
+            placeholder when we don't have a real position yet (no GPS, no
+            query/click result), so it never sits there impersonating your
+            actual location once we know better. */}
+        {layers?.landingCentre && !hasRealPosition && (
           <Marker position={[layers.landingCentre.lat, layers.landingCentre.lon]} icon={pinIcon}>
             <Popup>{t("map.landingCentre")}</Popup>
           </Marker>
