@@ -12,6 +12,35 @@
   gap: 0.75rem;
 }
 
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--critical-soft);
+  color: #a92c2c;
+  font-size: 0.85rem;
+}
+
+.retryButton {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: white;
+  background: var(--critical);
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: none;
+}
+
+.locationNote {
+  margin-top: 0.7rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
 .alertBanner {
   display: flex;
   align-items: center;
