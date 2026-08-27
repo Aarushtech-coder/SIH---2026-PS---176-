@@ -44,7 +44,8 @@ export function OrcaProvider({ children }) {
     ocean: null,
     nearestPfzKm: null,
     fetchedAt: null,
-    usedDefaultLocation: false,
+    location: null,
+    source: "default", // "gps" | "default" | "pin" -- where `location` came from
   });
 
   // GPS — single read per session; exposed so any component can consume it.
@@ -163,9 +164,13 @@ export function OrcaProvider({ children }) {
   // Silent background fetch for the Dashboard's overview tiles -- unlike
   // runQuery, this never touches messages/savedQueries, so it doesn't show
   // up as a fake chat turn just because the dashboard loaded.
-  const refreshDashboardSnapshot = useCallback(async () => {
-    const usingDefault = !geoLocation;
-    const coords = geoLocation || DEFAULT_LOCATION;
+  //
+  // coordsOverride lets a caller (e.g. a map pin click) fetch the dashboard
+  // tiles for a specific spot instead of the user's own GPS/default location
+  // -- same idea as runQuery's coordsOverride.
+  const refreshDashboardSnapshot = useCallback(async (coordsOverride) => {
+    const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
+    const source = coordsOverride ? "pin" : geoLocation ? "gps" : "default";
 
     setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
 
@@ -195,7 +200,8 @@ export function OrcaProvider({ children }) {
         ocean,
         nearestPfzKm: distances.length ? Math.min(...distances) : null,
         fetchedAt: new Date().toISOString(),
-        usedDefaultLocation: usingDefault,
+        location: coords,
+        source,
       });
     } catch (err) {
       setDashboardSnapshot((prev) => ({ ...prev, status: "error", error: err?.message || "" }));

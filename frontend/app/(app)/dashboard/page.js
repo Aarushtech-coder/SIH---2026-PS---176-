@@ -58,7 +58,7 @@ export default function DashboardPage() {
     if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
   }, [dashboardSnapshot.status, refreshDashboardSnapshot]);
 
-  const { status, weather, risk, ocean, nearestPfzKm, fetchedAt, usedDefaultLocation } = dashboardSnapshot;
+  const { status, weather, risk, ocean, nearestPfzKm, fetchedAt, location, source } = dashboardSnapshot;
   const isLoading = status === "idle" || status === "loading";
   const dash = "--";
 
@@ -132,8 +132,19 @@ export default function DashboardPage() {
               />
             </div>
           )}
-          {usedDefaultLocation && status === "ready" && (
+          {status === "ready" && source === "default" && (
             <p className={styles.locationNote}>{t("dashboard.usingDefaultLocation")}</p>
+          )}
+          {status === "ready" && source === "pin" && location && (
+            <p className={styles.locationNote}>
+              {t("dashboard.usingPinnedLocation", {
+                lat: location.latitude.toFixed(2),
+                lon: location.longitude.toFixed(2),
+              })}{" "}
+              <button type="button" onClick={() => refreshDashboardSnapshot()} className={styles.inlineLink}>
+                {t("dashboard.backToMyLocation")}
+              </button>
+            </p>
           )}
         </Panel>
 

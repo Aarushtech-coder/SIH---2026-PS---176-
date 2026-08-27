@@ -73,11 +73,17 @@ export default function MapExplorerPage() {
   // Click-to-inspect: fires the same kind of geospatial query the page
   // auto-runs on load, but for whatever point the user clicked instead of
   // their GPS position. runQuery already supports an explicit coords
-  // override for exactly this.
+  // override for exactly this. Also refreshes the Dashboard's overview
+  // tiles for that same point, so weather/risk/sea-temp there reflect the
+  // pinned region too, not just this page's own info panel.
   function handleMapClick(lat, lon) {
     if (loading) return;
     setPendingPoint({ lat, lon });
-    runQuery(t("map.clickQuery"), { latitude: lat, longitude: lon }).finally(() => setPendingPoint(null));
+    const coords = { latitude: lat, longitude: lon };
+    Promise.all([
+      runQuery(t("map.clickQuery"), coords),
+      refreshDashboardSnapshot(coords),
+    ]).finally(() => setPendingPoint(null));
   }
 
   const geo = mapData?.current_position ? mapData : null;

@@ -41,6 +41,13 @@
   color: var(--text-muted);
 }
 
+.inlineLink {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
 .alertBanner {
   display: flex;
   align-items: center;
