@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
-import { MAP_LAYERS, OVERVIEW } from "@/lib/mockData";
+import { MAP_LAYERS } from "@/lib/mockData";
 import { IconSearch } from "@/components/icons/Icons";
 import styles from "./page.module.css";
 
@@ -33,9 +33,15 @@ function InfoTile({ label, value }) {
   );
 }
 
+const SEA_CONDITION_KEY = { safe: "seaCondition.calm", caution: "seaCondition.moderate", unsafe: "seaCondition.rough" };
+
 export default function MapExplorerPage() {
-  const { mapData, geoLocation, runQuery, loading } = useOrca();
+  const { mapData, geoLocation, runQuery, loading, dashboardSnapshot, refreshDashboardSnapshot } = useOrca();
   const { t } = useLocale();
+
+  useEffect(() => {
+    if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
+  }, [dashboardSnapshot.status, refreshDashboardSnapshot]);
   const [visibility, setVisibility] = useState({
     pfz: true,
     hazard: true,
@@ -155,7 +161,11 @@ export default function MapExplorerPage() {
             />
             <InfoTile
               label={t("stat.seaCondition")}
-              value={OVERVIEW.seaCondition}
+              value={
+                dashboardSnapshot.risk
+                  ? t(SEA_CONDITION_KEY[dashboardSnapshot.risk.verdict] ?? "seaCondition.moderate")
+                  : "--"
+              }
             />
           </div>
         </div>

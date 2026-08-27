@@ -10,8 +10,15 @@ import {
 import { sendQuery, sendVoiceQuery } from "./api";
 import { useLocalStorage } from "./useLocalStorage";
 import { useGeolocation } from "./useGeolocation";
+import { haversineKm } from "./format";
 
 const OrcaContext = createContext(null);
+
+// Default fallback location (Chennai) -- used only when the browser hasn't
+// granted GPS access, same default already used elsewhere in the app
+// (LocationChip, MAP_LAYERS). The dashboard flags in its UI when this
+// fallback is in use rather than presenting it as the user's real position.
+const DEFAULT_LOCATION = { latitude: 13.0827, longitude: 80.2707 };
 
 function extractVerdict(turnState) {
   return turnState.agent_outputs?.risk_agent?.data?.verdict ?? null;
@@ -30,6 +37,15 @@ export function OrcaProvider({ children }) {
     "orca.savedQueries",
     [],
   );
+  const [dashboardSnapshot, setDashboardSnapshot] = useState({
+    status: "idle", // idle | loading | ready | error
+    weather: null,
+    risk: null,
+    ocean: null,
+    nearestPfzKm: null,
+    fetchedAt: null,
+    usedDefaultLocation: false,
+  });
 
   // GPS — single read per session; exposed so any component can consume it.
   const {
@@ -144,6 +160,48 @@ export function OrcaProvider({ children }) {
     [finishTurn, failTurn],
   );
 
+  // Silent background fetch for the Dashboard's overview tiles -- unlike
+  // runQuery, this never touches messages/savedQueries, so it doesn't show
+  // up as a fake chat turn just because the dashboard loaded.
+  const refreshDashboardSnapshot = useCallback(async () => {
+    const usingDefault = !geoLocation;
+    const coords = geoLocation || DEFAULT_LOCATION;
+
+    setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
+
+    try {
+      const [safeState, pfzState] = await Promise.all([
+        sendQuery("What are the current wind and wave conditions, and is it safe to sail?", coords),
+        sendQuery("Where is the nearest fishing zone?", coords),
+      ]);
+
+      const weather = safeState.agent_outputs?.weather_agent?.data ?? null;
+      const risk = safeState.agent_outputs?.risk_agent?.data ?? null;
+      const ocean = safeState.agent_outputs?.ocean_analytics_agent?.data ?? null;
+      const pfzZones = pfzState.agent_outputs?.marine_data_agent?.data?.pfz_zones ?? [];
+
+      // marine_data_agent's own distance_from_coast_km is currently a
+      // documented Phase-1 sentinel (-1.0, not implemented upstream yet) --
+      // zone lat/lon are real, so compute the actual distance from here
+      // instead of trusting that field.
+      const distances = pfzZones
+        .filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
+        .map((z) => haversineKm(coords.latitude, coords.longitude, z.latitude, z.longitude));
+
+      setDashboardSnapshot({
+        status: "ready",
+        weather,
+        risk,
+        ocean,
+        nearestPfzKm: distances.length ? Math.min(...distances) : null,
+        fetchedAt: new Date().toISOString(),
+        usedDefaultLocation: usingDefault,
+      });
+    } catch (err) {
+      setDashboardSnapshot((prev) => ({ ...prev, status: "error", error: err?.message || "" }));
+    }
+  }, [geoLocation]);
+
   const clearSavedQueries = useCallback(
     () => setSavedQueries([]),
     [setSavedQueries],
@@ -165,6 +223,8 @@ export function OrcaProvider({ children }) {
     savedQueries,
     clearSavedQueries,
     removeSavedQuery,
+    dashboardSnapshot,
+    refreshDashboardSnapshot,
     // GPS state
     geoLocation,
     geoStatus,
