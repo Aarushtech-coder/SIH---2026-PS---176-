@@ -41,6 +41,7 @@ export function OrcaProvider({ children }) {
     status: "idle", // idle | loading | ready | error
     weather: null,
     risk: null,
+    ocean: null,
     nearestPfzKm: null,
     fetchedAt: null,
     usedDefaultLocation: false,
@@ -176,6 +177,7 @@ export function OrcaProvider({ children }) {
 
       const weather = safeState.agent_outputs?.weather_agent?.data ?? null;
       const risk = safeState.agent_outputs?.risk_agent?.data ?? null;
+      const ocean = safeState.agent_outputs?.ocean_analytics_agent?.data ?? null;
       const pfzZones = pfzState.agent_outputs?.marine_data_agent?.data?.pfz_zones ?? [];
 
       // marine_data_agent's own distance_from_coast_km is currently a
@@ -190,6 +192,7 @@ export function OrcaProvider({ children }) {
         status: "ready",
         weather,
         risk,
+        ocean,
         nearestPfzKm: distances.length ? Math.min(...distances) : null,
         fetchedAt: new Date().toISOString(),
         usedDefaultLocation: usingDefault,

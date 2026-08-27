@@ -58,7 +58,7 @@ export default function DashboardPage() {
     if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
   }, [dashboardSnapshot.status, refreshDashboardSnapshot]);
 
-  const { status, weather, risk, nearestPfzKm, fetchedAt, usedDefaultLocation } = dashboardSnapshot;
+  const { status, weather, risk, ocean, nearestPfzKm, fetchedAt, usedDefaultLocation } = dashboardSnapshot;
   const isLoading = status === "idle" || status === "loading";
   const dash = "--";
 
@@ -123,6 +123,12 @@ export default function DashboardPage() {
                 label={t("stat.riskLevel")}
                 value={risk ? t(`verdict.${risk.verdict}`) : dash}
                 tone={risk ? (VERDICT_TONE[risk.verdict] ?? "accent") : "accent"}
+              />
+              <StatCard
+                icon={IconWave}
+                label={t("stat.seaTemp")}
+                value={typeof ocean?.sst_celsius === "number" ? `${ocean.sst_celsius.toFixed(1)}°C` : dash}
+                tone="accent"
               />
             </div>
           )}
