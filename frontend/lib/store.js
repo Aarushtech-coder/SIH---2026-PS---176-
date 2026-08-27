@@ -67,7 +67,13 @@ export function OrcaProvider({ children }) {
         ...prev,
         { id: `${Date.now()}-a`, role: "assistant", turnState },
       ]);
-      setMapData(turnState.map_data);
+
+      // Some intents (e.g. safe_to_sail) don't run geospatial_agent at all,
+      // so their map_data is always null -- overwriting mapData with that
+      // null used to wipe out whatever real position (a click, GPS, a prior
+      // nearest_pfz/geofence answer) was already showing on Map Explorer.
+      // Only replace mapData when this turn actually provided some.
+      if (turnState.map_data) setMapData(turnState.map_data);
 
       setSavedQueries((prev) =>
         [
