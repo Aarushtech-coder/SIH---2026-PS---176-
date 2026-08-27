@@ -97,7 +97,13 @@ export function OrcaProvider({ children }) {
       const query = text.trim();
       if (!query) return;
 
-      const coords = coordsOverride || geoLocation;
+      // Without a coordinate fallback here, a chat question asked before GPS
+      // is granted sends no location at all -- the backend's geospatial_agent
+      // then has nothing to work with and silently falls back to its own
+      // hardcoded mock answer (42 nm / 15.9,74.1 / "safe"), even though the
+      // pipeline is otherwise fully live. Dashboard and Map Explorer already
+      // fall back to this same default; Chat should too.
+      const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
 
       setMessages((prev) => [
         ...prev,
@@ -137,7 +143,8 @@ export function OrcaProvider({ children }) {
       setLoading(true);
 
       try {
-        const turnState = await sendVoiceQuery(audioBlob, {
+        const coords = geoLocation || DEFAULT_LOCATION;
+        const turnState = await sendVoiceQuery(audioBlob, coords, {
           onPlan: (agents) => setPipeline(agents),
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
         });
@@ -159,7 +166,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn],
+    [finishTurn, failTurn, geoLocation],
   );
 
   // Silent background fetch for the Dashboard's overview tiles -- unlike

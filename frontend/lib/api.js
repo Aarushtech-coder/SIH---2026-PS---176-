@@ -89,9 +89,13 @@ async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
 // message to Role 4): POST /voice-query, multipart/form-data with an
 // "audio" field, response is a TurnState JSON plus a top-level
 // transcribed_text field so the UI can show what was heard.
-export async function sendVoiceQuery(audioBlob, { onTrace, onPlan } = {}) {
+export async function sendVoiceQuery(audioBlob, coords, { onTrace, onPlan } = {}) {
   const formData = new FormData();
   formData.append("audio", audioBlob, "query.webm");
+  if (coords && coords.latitude != null && coords.longitude != null) {
+    formData.append("latitude", coords.latitude);
+    formData.append("longitude", coords.longitude);
+  }
 
   const response = await fetch(`${API_BASE_URL}/voice-query`, {
     method: "POST",
