@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Circle } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Circle, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapView.module.css";
@@ -18,6 +18,17 @@ const pinIcon = L.icon({
 
 const DEFAULT_CENTER = { lat: 13.0827, lon: 80.2707 }; // Chennai, fallback only
 
+// Bridges Leaflet's native click event out to React -- must be a child of
+// MapContainer (react-leaflet's hooks only work inside the map context).
+function ClickHandler({ onLocationClick }) {
+  useMapEvents({
+    click(e) {
+      onLocationClick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 const COLOR = {
   pfz: "#16a34a",
   hazard: "#dc2626",
@@ -34,8 +45,18 @@ const COLOR = {
  * @param {object}      [props.visibility]
  * @param {boolean}     [props.interactive]
  * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
+ * @param {(lat: number, lon: number) => void} [props.onLocationClick] - Called when the user clicks the map.
+ * @param {{lat:number,lon:number}|null} [props.pendingPoint] - A just-clicked point still waiting on its query response.
  */
-export default function MapView({ mapData, layers, visibility = {}, interactive = true, gpsCenter = null }) {
+export default function MapView({
+  mapData,
+  layers,
+  visibility = {},
+  interactive = true,
+  gpsCenter = null,
+  onLocationClick = null,
+  pendingPoint = null,
+}) {
   const { t } = useLocale();
 
   // Center priority: query response > static layers > live GPS > Chennai default
@@ -60,12 +81,23 @@ export default function MapView({ mapData, layers, visibility = {}, interactive 
         boxZoom={interactive}
         keyboard={interactive}
         attributionControl={interactive}
-        className={styles.map}
+        className={`${styles.map} ${interactive && onLocationClick ? styles.clickable : ""}`}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
+        {interactive && onLocationClick && <ClickHandler onLocationClick={onLocationClick} />}
+
+        {pendingPoint && (
+          <CircleMarker
+            center={[pendingPoint.lat, pendingPoint.lon]}
+            radius={9}
+            pathOptions={{ color: COLOR.location, fillOpacity: 0.3, weight: 2, dashArray: "3 4" }}
+            className={styles.pendingPin}
+          />
+        )}
 
         {visibility.pfz &&
           layers?.pfzZones?.map((z) => (
