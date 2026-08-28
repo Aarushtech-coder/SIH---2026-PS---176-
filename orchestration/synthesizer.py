@@ -176,11 +176,27 @@ def run(state: TurnState) -> TurnState:
         sections, citations = _summarize_outputs(state)
 
         # Disclaimer logic (same in both LLM and fallback paths).
+        # Disclaimer logic (same in both LLM and fallback paths).
         if state.intent in {"safe_to_sail", "geofence_check"}:
-            disclaimer = (
-                "Safety note: this mock response is not a substitute for official "
-                "IMD, INCOIS, coast guard, or local maritime advisories."
+            any_mock = any(
+                output.source == "MOCK"
+                for output in state.agent_outputs.values()
+                if output is not None
             )
+            if any_mock:
+                disclaimer = (
+                    "Safety note: some of this response uses mock/placeholder data "
+                    "and is not a substitute for official IMD, INCOIS, coast guard, "
+                    "or local maritime advisories."
+                )
+            else:
+                disclaimer = (
+                    "Safety note: this is a decision-support tool based on live IMD/"
+                    "INCOIS data sources, not an autonomous safety authority. It does "
+                    "not replace official advisories — please verify with INCOIS "
+                    "(incois.gov.in) or your local Coast Guard/Fisheries office before "
+                    "departure."
+                )
         else:
             disclaimer = None
 
