@@ -210,13 +210,13 @@ def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
         {"lat": end_lat, "lon": end_lon},
     ]
 
-
 def distance_to_imbl(lat, lon):
     """Calculate distance in nautical miles from any point to the IMBL."""
     try:
         boundary = _load_boundary()
+        boundary_outline = boundary.boundary
         point = _Point(lon, lat)
-        nearest_on_boundary, _ = _nearest_points(boundary, point)
+        nearest_on_boundary, _ = _nearest_points(boundary_outline, point)
         return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
     except Exception:
-        return 999.0  # Fallback: treat as far away rather than crash
+        return 999.0
