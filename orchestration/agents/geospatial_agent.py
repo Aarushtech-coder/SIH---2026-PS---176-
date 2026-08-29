@@ -56,22 +56,24 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
     return 2 * R_nm * math.asin(math.sqrt(a))
 
 
+_boundary_cache = None
+
+
 def _load_boundary():
-    """Merges only India's own EEZ features into one boundary -- the file
-    also contains Bangladesh and Myanmar EEZ polygons, which must be
-    excluded so 'inside' correctly means inside India's own waters, not
-    any neighboring country's."""
-    with open(BOUNDARY_GEOJSON_PATH) as f:
-        geojson = json.load(f)
-    india_features = [
-        f
-        for f in geojson["features"]
-        if f.get("properties", {}).get("SOVEREIGN1") == "India"
-    ]
-    if not india_features:
-        raise ValueError("No India EEZ features found in boundary geojson")
-    geometries = [_shape(f["geometry"]) for f in india_features]
-    return _unary_union(geometries)
+    """Merges ALL India features into one boundary, cached after the first
+    call -- this data never changes at runtime, so re-reading the file and
+    re-running unary_union on every single request is wasted work."""
+    global _boundary_cache
+    if _boundary_cache is None:
+        with open(BOUNDARY_GEOJSON_PATH) as f:
+            geojson = json.load(f)
+        india_features = [
+            f for f in geojson["features"]
+            if f.get("properties", {}).get("SOVEREIGN1") == "India"
+        ]
+        geometries = [shape(f["geometry"]) for f in india_features]
+        _boundary_cache = unary_union(geometries)
+    return _boundary_cache
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:

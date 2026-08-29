@@ -15,6 +15,7 @@ load_dotenv()
 import base64
 import os
 import tempfile
+import asyncio
 import traceback
 import uuid 
 import json
@@ -209,8 +210,8 @@ async def query(request: QueryRequest):
 
     try:
         # Pass session_id and user_location — turn_id is auto-generated inside run_query.
-        result = run_query(
-            raw_query=request.text, session_id=session_id, user_location=user_location
+         result = await asyncio.to_thread(
+            run_query, raw_query=request.text, session_id=session_id, user_location=user_location
         )
     except Exception as exc:
         # Print the full traceback to the server console for hackathon debugging.
@@ -281,7 +282,8 @@ async def voice_query(
             user_location = {"lat": latitude, "lon": longitude}
 
         try:
-            result = run_query(
+            result = await asyncio.to_thread(
+                run_query,
                 raw_query=transcribed_text,
                 session_id=session_id,
                 user_location=user_location,
