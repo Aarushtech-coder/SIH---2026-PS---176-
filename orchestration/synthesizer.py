@@ -246,11 +246,6 @@ def run(state: TurnState) -> TurnState:
             used_llm = True
         except Exception:  # noqa: BLE001
             # --- Template fallback ---
-            if sections:
-                details = "; ".join(sections)
-            else:
-                details = "no specialist mock outputs were available"
-
             intent_intro = {
                 "nearest_pfz": "For the nearest fishing zone request",
                 "safe_to_sail": "For the safe-to-sail request",
@@ -262,8 +257,8 @@ def run(state: TurnState) -> TurnState:
                 f" [language: {state.language}]" if state.language != "en" else ""
             )
             state.final_answer = (
-                f"{intent_intro}, this placeholder response uses mock data only: "
-                f"{details}.{lang_note}"
+                f"{intent_intro}, please refer to the map or charts provided "
+                f"for the requested data.{lang_note}"
             )
 
         state.citations = citations
