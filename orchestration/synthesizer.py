@@ -230,6 +230,9 @@ def run(state: TurnState) -> TurnState:
                             "If any agent's source is 'MOCK', explicitly and naturally mention within the sentence "
                             "that this is placeholder or mock data, not live yet — never silently present mock data as real. "
                             "Keep the answer to 2-4 sentences. Do not invent numbers beyond what is given. "
+                            "IMBL stands for International Maritime Boundary Line (the line separating "
+                            "India's EEZ from a neighboring country's waters) — never expand it as anything "
+                            "else, such as 'Marine Biodiversity Loss'. "
                             f"Write your response in the language with ISO code '{state.language}'. "
                             "If it is 'en', respond in English."
                         ),
