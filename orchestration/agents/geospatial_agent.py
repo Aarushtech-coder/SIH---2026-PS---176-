@@ -210,6 +210,7 @@ def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
         {"lat": end_lat, "lon": end_lon},
     ]
 
+
 def distance_to_imbl(lat, lon):
     """Calculate distance in nautical miles from any point to the IMBL."""
     try:
