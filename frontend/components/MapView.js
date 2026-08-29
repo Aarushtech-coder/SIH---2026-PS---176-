@@ -10,7 +10,6 @@ import {
   CircleMarker,
   Circle,
   useMap,
-  useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -51,16 +50,7 @@ const pinIcon = L.icon({
 
 const DEFAULT_CENTER = { lat: 13.0827, lon: 80.2707 }; // Chennai, fallback only
 
-// Bridges Leaflet's native click event out to React -- must be a child of
-// MapContainer (react-leaflet's hooks only work inside the map context).
-function ClickHandler({ onLocationClick }) {
-  useMapEvents({
-    click(e) {
-      onLocationClick(e.latlng.lat, e.latlng.lng);
-    },
-  });
-  return null;
-}
+// ClickHandler removed — search box is now the sole location-picker.
 
 const COLOR = {
   pfz: "#16a34a",
@@ -78,8 +68,7 @@ const COLOR = {
  * @param {object}      [props.visibility]
  * @param {boolean}     [props.interactive]
  * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
- * @param {(lat: number, lon: number) => void} [props.onLocationClick] - Called when the user clicks the map.
- * @param {{lat:number,lon:number}|null} [props.pendingPoint] - A just-clicked point still waiting on its query response.
+ * @param {() => void} [props.onPreviewClick] - Called when the non-interactive preview overlay is clicked.
  */
 export default function MapView({
   mapData,
@@ -87,8 +76,7 @@ export default function MapView({
   visibility = {},
   interactive = true,
   gpsCenter = null,
-  onLocationClick,
-  pendingPoint,
+  onPreviewClick,
 }) {
   const { t } = useLocale();
 
@@ -122,7 +110,7 @@ export default function MapView({
         boxZoom={interactive}
         keyboard={interactive}
         attributionControl={interactive}
-        className={`${styles.map} ${interactive && onLocationClick ? styles.clickable : ""}`}
+        className={styles.map}
       >
         {/* Re-centres the map imperatively on data updates -- avoids the
             MapContainer remount that caused the _leaflet_pos race condition. */}
@@ -131,7 +119,6 @@ export default function MapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {onLocationClick && <ClickHandler onLocationClick={onLocationClick} />}
 
         {visibility.pfz &&
           layers?.pfzZones?.map((z) => (
@@ -273,7 +260,16 @@ export default function MapView({
         )}
       </MapContainer>
 
-      {!interactive && <div className={styles.previewOverlay} />}
+      {/* Non-interactive preview overlay: transparent, but clickable so the
+          user can tap it to open the full Map Explorer at the same position. */}
+      {!interactive && (
+        <div
+          className={styles.previewOverlay}
+          onClick={onPreviewClick}
+          role="button"
+          aria-label="Open full map"
+        />
+      )}
       {!mapData && !layers && (
         <div className={styles.hint}>{t("map.noData")}</div>
       )}

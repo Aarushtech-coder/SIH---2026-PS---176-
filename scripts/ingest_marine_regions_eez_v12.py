@@ -16,9 +16,9 @@ Usage:
     python scripts/ingest_marine_regions_eez_v12.py [path_to_shapefile.shp]
 """
 
+import glob
 import os
 import sys
-import glob
 
 try:
     import geopandas as gpd

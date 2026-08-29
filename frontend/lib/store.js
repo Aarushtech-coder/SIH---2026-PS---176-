@@ -55,8 +55,10 @@ export function OrcaProvider({ children }) {
     nearestPfzKm: null,
     fetchedAt: null,
     location: null,
-    source: "default", // "gps" | "default" | "pin" -- where `location` came from
+    source: "default", // "gps" | "default" | "pin" | "manual" -- where `location` came from
   });
+
+  const [manualLocation, setManualLocation] = useState(null);
 
   // GPS — single read per session; exposed so any component can consume it.
   const {
@@ -118,7 +120,7 @@ export function OrcaProvider({ children }) {
       // hardcoded mock answer (42 nm / 15.9,74.1 / "safe"), even though the
       // pipeline is otherwise fully live. Dashboard and Map Explorer already
       // fall back to this same default; Chat should too.
-      const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
+      const coords = coordsOverride || manualLocation || geoLocation || DEFAULT_LOCATION;
 
       setMessages((prev) => [
         ...prev,
@@ -143,6 +145,35 @@ export function OrcaProvider({ children }) {
     [finishTurn, failTurn, geoLocation],
   );
 
+  // Silent map-only query: fetches geospatial data for a given position and
+  // updates mapData, but NEVER touches messages/savedQueries. Used by Map
+  // Explorer's GPS auto-load and search-box selection so those actions don't
+  // leak into the Chat Assistant thread as fake user messages.
+  const runMapQuery = useCallback(
+    async (coordsOverride) => {
+      const coords = coordsOverride || manualLocation || geoLocation || DEFAULT_LOCATION;
+      try {
+        const turnState = await sendQuery(
+          "What is my current maritime zone status?",
+          coords,
+        );
+        if (turnState.map_data) {
+          // Force the map data to respect the actual coordinates we requested
+          // rather than falling back to the hardcoded mock responses from
+          // the backend (which would otherwise snap the map back to Chennai).
+          setMapData({
+            ...turnState.map_data,
+            center: { lat: coords.latitude, lon: coords.longitude },
+            current_position: { lat: coords.latitude, lon: coords.longitude }
+          });
+        }
+      } catch {
+        // Silent — map page handles its own error UI
+      }
+    },
+    [geoLocation],
+  );
+
   // Records->transcribe flow: the user's message bubble starts "pending"
   // (we don't know the query text yet) and is filled in with the backend's
   // transcribed_text once the response lands.
@@ -158,7 +189,7 @@ export function OrcaProvider({ children }) {
       setLoading(true);
 
       try {
-        const coords = geoLocation || DEFAULT_LOCATION;
+        const coords = manualLocation || geoLocation || DEFAULT_LOCATION;
         const turnState = await sendVoiceQuery(audioBlob, coords, {
           onPlan: (agents) => setPipeline(agents),
           onTrace: (entry) => setTrace((prev) => [...prev, entry]),
@@ -193,8 +224,14 @@ export function OrcaProvider({ children }) {
   // -- same idea as runQuery's coordsOverride.
   const refreshDashboardSnapshot = useCallback(
     async (coordsOverride) => {
-      const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
-      const source = coordsOverride ? "pin" : geoLocation ? "gps" : "default";
+      const coords = coordsOverride || manualLocation || geoLocation || DEFAULT_LOCATION;
+      const source = coordsOverride
+        ? "pin"
+        : manualLocation
+          ? "manual"
+          : geoLocation
+            ? "gps"
+            : "default";
 
       setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
 
@@ -271,6 +308,7 @@ export function OrcaProvider({ children }) {
     mapData,
     loading,
     runQuery,
+    runMapQuery,
     runVoiceQuery,
     savedQueries,
     clearSavedQueries,
@@ -281,6 +319,8 @@ export function OrcaProvider({ children }) {
     geoLocation,
     geoStatus,
     retryGeo,
+    manualLocation,
+    setManualLocation,
   };
 
   return <OrcaContext.Provider value={value}>{children}</OrcaContext.Provider>;

@@ -5,8 +5,8 @@ history or claim causation from a correlation. Each observation is a mapping
 with catch, chlorophyll_mg_per_m3, and optional sst_celsius values.
 """
 
-from datetime import datetime, timezone
 import math
+from datetime import datetime, timezone
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 

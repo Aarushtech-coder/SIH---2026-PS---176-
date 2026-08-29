@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import base64
 import os
 import tempfile
 import traceback
@@ -22,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestration.graph import run_query
-from orchestration.localization_pipeline import SpeechToText
+from orchestration.localization_pipeline import SpeechToText, text_to_speech
 
 # ---------------------------------------------------------------------------
 # App instance
@@ -172,7 +173,7 @@ async def voice_query(
 
     try:
         try:
-            _, transcribed_text = _get_stt().transcribe(tmp_path)
+            whisper_lang, transcribed_text = _get_stt().transcribe(tmp_path)
         except Exception as exc:
             traceback.print_exc()
             raise HTTPException(
@@ -218,10 +219,27 @@ async def voice_query(
         result_data = (
             result.model_dump() if hasattr(result, "model_dump") else result.dict()
         )
+
+        # Generate TTS audio for the final answer
+        audio_b64 = None
+        if result.final_answer:
+            tts_lang = getattr(result, "language", None) or whisper_lang or "en"
+            out_file = f"response_{uuid.uuid4().hex}.mp3"
+            try:
+                text_to_speech(result.final_answer, tts_lang, out_file)
+                with open(out_file, "rb") as f:
+                    audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+            except Exception as exc:
+                print("Failed to generate TTS:", exc)
+            finally:
+                if os.path.exists(out_file):
+                    os.unlink(out_file)
+
         return {
             **result_data,
             "transcribed_text": transcribed_text,
             "session_id": session_id,
+            "audio_b64": audio_b64,
         }
     finally:
         os.unlink(tmp_path)

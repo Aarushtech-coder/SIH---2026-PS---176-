@@ -8,21 +8,22 @@ Implements the Agent Hand-off Contract (see orchestration/CONTRACTS.md):
 - Appends one TraceEntry to state.trace describing what happened
 """
 
-from datetime import datetime, timezone
-import math
 import json
+import logging
+import math
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
-import logging
-
 logger = logging.getLogger(__name__)
 
 try:
-    from shapely.geometry import Point as _Point, shape as _shape
-    from shapely.ops import nearest_points as _nearest_points, unary_union as _unary_union
+    from shapely.geometry import Point as _Point
+    from shapely.geometry import shape as _shape
+    from shapely.ops import nearest_points as _nearest_points
+    from shapely.ops import unary_union as _unary_union
 
     SHAPELY_AVAILABLE = True
 except ImportError:

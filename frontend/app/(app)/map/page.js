@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -33,82 +34,174 @@ function InfoTile({ label, value }) {
   );
 }
 
-const SEA_CONDITION_KEY = { safe: "seaCondition.calm", caution: "seaCondition.moderate", unsafe: "seaCondition.rough" };
+const SEA_CONDITION_KEY = {
+  safe: "seaCondition.calm",
+  caution: "seaCondition.moderate",
+  unsafe: "seaCondition.rough",
+};
 
-export default function MapExplorerPage() {
-  const { mapData, geoLocation, runQuery, loading, dashboardSnapshot, refreshDashboardSnapshot } = useOrca();
+// ─── Nominatim geocoding ────────────────────────────────────────────────────
+const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const USER_AGENT = "SIH2026-MarineSafety/1.0 (contact: sih2026@example.com)";
+
+async function geocode(query) {
+  const url = `${NOMINATIM_URL}?q=${encodeURIComponent(query)}&format=json&limit=5&addressdetails=0`;
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.map((r) => ({
+    id: r.place_id,
+    label: r.display_name,
+    lat: parseFloat(r.lat),
+    lon: parseFloat(r.lon),
+  }));
+}
+
+// ─── Inner page (needs Suspense for useSearchParams) ────────────────────────
+function MapExplorerInner() {
+  const {
+    mapData,
+    geoLocation,
+    geoStatus,
+    runMapQuery,
+    loading,
+    dashboardSnapshot,
+    refreshDashboardSnapshot,
+    manualLocation,
+    setManualLocation,
+  } = useOrca();
   const { t } = useLocale();
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  useEffect(() => {
-    if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
-  }, [dashboardSnapshot.status, refreshDashboardSnapshot]);
+  // ── Layer visibility ──────────────────────────────────────────────────────
   const [visibility, setVisibility] = useState({
-    pfz: true,
-    hazard: true,
-    routes: true,
-    boundary: true,
+    pfz: true, hazard: true, routes: true, boundary: true,
   });
-
-  // Demo location override — lets us show the pipeline working with real
-  // coastal data during a demo, even when the device's real GPS is inland
-  // (e.g. testing from an office/venue far from the sea). null = use real GPS.
-  const DEMO_LOCATIONS = {
-    goa: { label: "Goa", lat: 15.5, lon: 73.5 },
-    chennai: { label: "Chennai", lat: 13.08, lon: 80.27 },
-    mumbai: { label: "Mumbai", lat: 18.94, lon: 72.84 },
-  };
-  const [demoLocation, setDemoLocation] = useState(null);
-
-  // If the user opens Map Explorer directly (without asking a question in
-  // Chat first), mapData is still null. Auto-run a geofence check using the
-  // device's GPS so this page always shows live data, not stale placeholders.
-  useEffect(() => {
-    if (!mapData && !loading && geoLocation) {
-      runQuery("What is my current maritime zone status?");
-    }
-  }, [mapData, loading, geoLocation, runQuery]);
-
-  const [pendingPoint, setPendingPoint] = useState(null);
-
-  // Click-to-inspect: fires the same kind of geospatial query the page
-  // auto-runs on load, but for whatever point the user clicked instead of
-  // their GPS position. runQuery already supports an explicit coords
-  // override for exactly this. Also refreshes the Dashboard's overview
-  // tiles for that same point, so weather/risk/sea-temp there reflect the
-  // pinned region too, not just this page's own info panel.
-  function handleMapClick(lat, lon) {
-    if (loading) return;
-    setPendingPoint({ lat, lon });
-    const coords = { latitude: lat, longitude: lon };
-    Promise.all([
-      runQuery(t("map.clickQuery"), coords),
-      refreshDashboardSnapshot(coords),
-    ]).finally(() => setPendingPoint(null));
-  }
-
-  const geo = mapData?.current_position ? mapData : null;
-
-  // The static MAP_LAYERS PFZ zones are illustrative mock data sitting near
-  // Chennai's coordinates. Once we have real zones for the current dashboard
-  // location (GPS, default, or a clicked pin -- refreshDashboardSnapshot
-  // already fetches these), show those instead so PFZ markers actually
-  // track whichever region is being looked at.
-  const realPfzZones = dashboardSnapshot.pfzZones
-    ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
-    .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
-  const layers = {
-    ...MAP_LAYERS,
-    pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
-  };
-
-  // Convert store's {latitude, longitude} shape to MapView's {lat, lon} shape.
-  const gpsCenter = geoLocation
-    ? { lat: geoLocation.latitude, lon: geoLocation.longitude }
-    : null;
 
   function toggleLayer(key) {
     setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
   }
+
+  // ── Map center override (set by search or incoming ?lat/?lon param) ───────
+  const [mapCenter, setMapCenter] = useState(null); // {lat, lon} or null
+
+  // ── Search state ──────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const debounceRef = useRef(null);
+
+  // Debounced Nominatim fetch
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      setSearchOpen(true);
+      try {
+        const results = await geocode(q);
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchQuery]);
+
+  // When user picks a search result: pan map, change global location, trigger silent query
+  const handleSearchSelect = useCallback(
+    (result) => {
+      const coords = { latitude: result.lat, longitude: result.lon };
+      setManualLocation(coords);
+      setMapCenter({ lat: result.lat, lon: result.lon });
+      setSearchQuery(result.label);
+      setSearchOpen(false);
+      runMapQuery(coords);
+      refreshDashboardSnapshot(coords);
+    },
+    [runMapQuery, refreshDashboardSnapshot, setManualLocation],
+  );
+
+  // ── GPS auto-fetch (once per mount) ──────────────────────────────────────
+  const autoFetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoFetchedRef.current) return;
+
+    // If the page was opened from the preview card with explicit coords, use
+    // those instead of GPS so we respect what the user was looking at.
+    const paramLat = parseFloat(searchParams.get("lat"));
+    const paramLon = parseFloat(searchParams.get("lon"));
+    if (!isNaN(paramLat) && !isNaN(paramLon)) {
+      autoFetchedRef.current = true;
+      const coords = { latitude: paramLat, longitude: paramLon };
+      setMapCenter({ lat: paramLat, lon: paramLon });
+      runMapQuery(coords);
+      refreshDashboardSnapshot(coords);
+      // Clean up the URL so these params don't persist on refresh
+      router.replace("/map");
+      return;
+    }
+
+    // GPS path: wait until the browser resolves the position
+    if (geoStatus === "granted" && geoLocation) {
+      autoFetchedRef.current = true;
+      const coords = { latitude: geoLocation.latitude, longitude: geoLocation.longitude };
+      runMapQuery(coords);
+      refreshDashboardSnapshot(coords);
+      return;
+    }
+
+    // GPS denied/unavailable — mark as fetched so we don't retry, and let the
+    // fallback banner show. The dashboard snapshot will still run with
+    // the Chennai default inside refreshDashboardSnapshot.
+    if (geoStatus === "denied" || geoStatus === "unavailable") {
+      autoFetchedRef.current = true;
+      if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
+    }
+  }, [
+    geoStatus,
+    geoLocation,
+    searchParams,
+    runMapQuery,
+    refreshDashboardSnapshot,
+    router,
+    dashboardSnapshot.status,
+  ]);
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const geo = mapData?.current_position ? mapData : null;
+
+  const realPfzZones = dashboardSnapshot.pfzZones
+    ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
+    .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
+
+  // If we have an explicit mapCenter from search or incoming params, override
+  // the static layers center so MapRecenter pans to the right place.
+  const layers = {
+    ...MAP_LAYERS,
+    pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
+    ...(mapCenter ? { center: mapCenter } : {}),
+  };
+
+  const activeLoc = manualLocation || geoLocation;
+  const gpsCenter = activeLoc
+    ? { lat: activeLoc.latitude, lon: activeLoc.longitude }
+    : null;
+
+  // Show fallback banner when GPS isn't available
+  const showFallbackBanner =
+    geoStatus === "denied" || geoStatus === "unavailable";
 
   return (
     <div className={styles.page}>
@@ -116,12 +209,49 @@ export default function MapExplorerPage() {
         title={t("nav.map")}
         subtitle={t("map.subtitle")}
         right={
-          <div className={styles.searchBox}>
-            <IconSearch size={15} />
-            <input placeholder={t("map.searchPlaceholder")} />
+          <div className={styles.searchWrapper}>
+            <div className={styles.searchBox}>
+              <IconSearch size={15} />
+              <input
+                placeholder={t("map.searchPlaceholder")}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
+                onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+                autoComplete="off"
+              />
+              {searchLoading && <span className={styles.searchSpinner} />}
+            </div>
+            {searchOpen && (
+              <div className={styles.searchDropdown}>
+                {searchLoading && (
+                  <div className={styles.searchEmpty}>Searching…</div>
+                )}
+                {!searchLoading && searchResults.length === 0 && searchQuery.trim() && (
+                  <div className={styles.searchEmpty}>No results found</div>
+                )}
+                {!searchLoading &&
+                  searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={styles.searchItem}
+                      onMouseDown={() => handleSearchSelect(r)}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
         }
       />
+
+      {showFallbackBanner && (
+        <div className={styles.fallbackBanner}>
+          📍 Showing Chennai (default) — enable location for your area
+        </div>
+      )}
 
       <div className={styles.toolbar}>
         {LAYER_TOGGLES.map(({ key, labelKey, swatch }) => (
@@ -135,7 +265,6 @@ export default function MapExplorerPage() {
             {t(labelKey)}
           </button>
         ))}
-        <span className={styles.clickHint}>{t("map.clickHint")}</span>
       </div>
 
       <div className={styles.mapWrap}>
@@ -145,8 +274,6 @@ export default function MapExplorerPage() {
           visibility={visibility}
           interactive
           gpsCenter={gpsCenter}
-          onLocationClick={handleMapClick}
-          pendingPoint={pendingPoint}
         />
       </div>
 
@@ -197,7 +324,10 @@ export default function MapExplorerPage() {
               label={t("stat.seaCondition")}
               value={
                 dashboardSnapshot.risk
-                  ? t(SEA_CONDITION_KEY[dashboardSnapshot.risk.verdict] ?? "seaCondition.moderate")
+                  ? t(
+                      SEA_CONDITION_KEY[dashboardSnapshot.risk.verdict] ??
+                        "seaCondition.moderate",
+                    )
                   : "--"
               }
             />
@@ -205,5 +335,13 @@ export default function MapExplorerPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MapExplorerPage() {
+  return (
+    <Suspense fallback={null}>
+      <MapExplorerInner />
+    </Suspense>
   );
 }

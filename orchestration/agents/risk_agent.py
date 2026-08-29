@@ -32,11 +32,13 @@ from orchestration.state import AgentOutput, TraceEntry, TurnState
 # (source: mausam.imd.gov.in Tamil Nadu bulletin, AzheekalJetty example).
 # Re-verify against the live bulletin closest to your demo date — these
 # bands shift bulletin-to-bulletin and region-to-region.
-MAX_SAFE_WIND_SPEED_KMH = 20.0     # below official squally band: caution begins
-UNSAFE_WIND_SPEED_KMH = 35.0       # IMD "do not venture" band starts here
-UNSAFE_WIND_GUST_KMH = 55.0        # matches the gust figure in the same bulletins
-MAX_SAFE_WAVE_HEIGHT_M = 1.0       # swell/vigilance advisory band starts here
-UNSAFE_WAVE_HEIGHT_M = 2.5         # below INCOIS's observed 2.8-3.3m High Wave Alert band, conservative
+MAX_SAFE_WIND_SPEED_KMH = 20.0  # below official squally band: caution begins
+UNSAFE_WIND_SPEED_KMH = 35.0  # IMD "do not venture" band starts here
+UNSAFE_WIND_GUST_KMH = 55.0  # matches the gust figure in the same bulletins
+MAX_SAFE_WAVE_HEIGHT_M = 1.0  # swell/vigilance advisory band starts here
+UNSAFE_WAVE_HEIGHT_M = (
+    2.5  # below INCOIS's observed 2.8-3.3m High Wave Alert band, conservative
+)
 
 DISCLAIMER = (
     "This advisory is generated from published IMD/INCOIS thresholds and is "
@@ -152,7 +154,11 @@ def run(state: TurnState) -> TurnState:
                 "unsafe_wind_gust_kmh": UNSAFE_WIND_GUST_KMH,
             },
         }
-        source = "IMD/INCOIS-thresholds" if weather_output and weather_output.source != "MOCK" else "MOCK"
+        source = (
+            "IMD/INCOIS-thresholds"
+            if weather_output and weather_output.source != "MOCK"
+            else "MOCK"
+        )
         output_summary = f"verdict={verdict}"
     except Exception as exc:
         # Resilience rule (CONTRACTS.md): never raise.

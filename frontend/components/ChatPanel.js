@@ -23,10 +23,22 @@ export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
   const listRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const playedAudios = useRef(new Set());
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant" && lastMsg.turnState?.audio_b64) {
+      if (!playedAudios.current.has(lastMsg.id)) {
+        playedAudios.current.add(lastMsg.id);
+        const audio = new Audio(`data:audio/mp3;base64,${lastMsg.turnState.audio_b64}`);
+        audio.play().catch(e => console.error("Audio playback failed:", e));
+      }
+    }
+  }, [messages]);
 
   function submit(e) {
     e.preventDefault();
