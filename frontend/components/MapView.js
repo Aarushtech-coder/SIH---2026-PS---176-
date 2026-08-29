@@ -173,16 +173,15 @@ export default function MapView({
             pathOptions={{ color: COLOR.boundary, weight: 2, dashArray: "6 6" }}
           />
         )}
-
-        {layers?.landingCentre && (
-          <Marker
-            position={[layers.landingCentre.lat, layers.landingCentre.lon]}
-            icon={pinIcon}
-          >
-            <Popup>{t("map.landingCentre")}</Popup>
-          </Marker>
-        )}
-
+         {!hasRealPosition && layers?.landingCentre && (
+  <Marker
+    position={[layers.landingCentre.lat, layers.landingCentre.lon]}
+    icon={pinIcon}
+  >
+    <Popup>{t("map.landingCentre")}</Popup>
+  </Marker>
+)}
+        
         {mapData?.pfz_zones?.map((z) => (
           <CircleMarker
             key={`turn-${z.zone_id}`}
