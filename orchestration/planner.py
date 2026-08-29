@@ -21,7 +21,7 @@ INTENTS = {
 AGENTS_BY_INTENT = {
     "nearest_pfz": ["marine_data_agent", "geospatial_agent"],
     "safe_to_sail": ["weather_agent", "ocean_analytics_agent", "risk_agent"],
-    "weather_tide": ["weather_agent"],
+    "weather_tide": ["weather_agent", "ocean_analytics_agent"],
     "geofence_check": ["geospatial_agent", "risk_agent"],
     # No specialist agents needed for these two; synthesizer handles them directly.
     "general_ocean_info": [],
