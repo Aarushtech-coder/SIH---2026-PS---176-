@@ -68,11 +68,12 @@ def _load_boundary():
         with open(BOUNDARY_GEOJSON_PATH) as f:
             geojson = json.load(f)
         india_features = [
-            f for f in geojson["features"]
+            f
+            for f in geojson["features"]
             if f.get("properties", {}).get("SOVEREIGN1") == "India"
         ]
-        geometries = [shape(f["geometry"]) for f in india_features]
-        _boundary_cache = unary_union(geometries)
+        geometries = [_shape(f["geometry"]) for f in india_features]
+        _boundary_cache = _unary_union(geometries)
     return _boundary_cache
 
 
