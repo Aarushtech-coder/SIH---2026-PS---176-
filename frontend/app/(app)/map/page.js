@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
+import { fetchBoundary } from "@/lib/api";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -82,7 +83,13 @@ function MapExplorerInner() {
   function toggleLayer(key) {
     setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
   }
+  const [realBoundary, setRealBoundary] = useState(null);
 
+useEffect(() => {
+  fetchBoundary()
+    .then(setRealBoundary)
+    .catch((err) => console.error("Failed to fetch boundary:", err));
+}, []);
   // ── Map center override (set by search or incoming ?lat/?lon param) ───────
   const [mapCenter, setMapCenter] = useState(null); // {lat, lon} or null
 
@@ -181,7 +188,12 @@ function MapExplorerInner() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const geo = mapData?.current_position ? mapData : null;
-
+  const layers = {
+  ...MAP_LAYERS,
+  pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
+  boundary: realBoundary?.length ? realBoundary : MAP_LAYERS.boundary,
+  ...(mapCenter ? { center: mapCenter } : {}),
+};
   const realPfzZones = dashboardSnapshot.pfzZones
     ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
     .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
