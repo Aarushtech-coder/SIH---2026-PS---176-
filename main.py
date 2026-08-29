@@ -16,7 +16,10 @@ import base64
 import os
 import tempfile
 import traceback
-import uuid
+import uuid 
+import json
+from shapely.geometry import shape
+from shapely.ops import unary_union
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,6 +102,83 @@ async def root():
 async def health():
     """Simple liveness probe."""
     return {"status": "ok", "message": "ORCA orchestration API is running"}
+# ---------------------------------------------------------------------------
+# Boundary endpoint -- serves India's EEZ/IMBL boundary line for map rendering
+# ---------------------------------------------------------------------------
+BOUNDARY_GEOJSON_PATH = os.path.join(
+    os.path.dirname(__file__), "orchestration", "data", "india_imbl_eez.geojson"
+)
+
+# Cached at process start -- the boundary file doesn't change at runtime.
+_boundary_line_cache: list[list[list[float]]] | None = None
+
+
+def _compute_boundary_line() -> list[list[list[float]]]:
+    """
+    Reads orchestration/data/india_imbl_eez.geojson, merges India's own EEZ
+    features (excluding any stray neighboring-country features the file may
+    contain), simplifies the outline for performant rendering, and returns
+    the largest boundary segments as a list of [lat, lon] polylines --
+    matching the shape react-leaflet's <Polyline positions={...}> expects
+    for a multi-segment line (mainland coast + Andaman & Nicobar are
+    disconnected pieces, so this can't be a single flat line).
+    """
+    with open(BOUNDARY_GEOJSON_PATH) as f:
+        geojson = json.load(f)
+
+    india_features = [
+        f for f in geojson["features"]
+        if f.get("properties", {}).get("SOVEREIGN1") == "India"
+    ]
+    if not india_features:
+        raise ValueError("No India EEZ features found in boundary geojson")
+
+    geometries = [shape(f["geometry"]) for f in india_features]
+    boundary = unary_union(geometries)
+    outline = boundary.boundary
+
+    # 0.02 degrees (~2km) tolerance keeps the coastline shape recognizable
+    # while cutting point count from ~10k down to a browser-friendly size.
+    simplified = outline.simplify(0.02, preserve_topology=True)
+
+    lines = list(simplified.geoms) if simplified.geom_type == "MultiLineString" else [simplified]
+
+    # India's EEZ outline includes hundreds of small Andaman & Nicobar
+    # islands as separate tiny rings -- keeping all of them makes the map
+    # unusably slow. Keep only the largest 15 by geographic length: this
+    # covers the mainland coastline, the main Andaman & Nicobar outline,
+    # and the larger individual islands.
+    lines_sorted = sorted(lines, key=lambda l: l.length, reverse=True)
+    top_lines = lines_sorted[:15]
+
+    segments = []
+    for line in top_lines:
+        coords = [[round(y, 4), round(x, 4)] for x, y in line.coords]
+        segments.append(coords)
+
+    return segments
+
+
+@app.get("/boundary", summary="India's EEZ/IMBL boundary line for map rendering")
+def get_boundary():
+    """
+    Returns India's EEZ boundary as a list of [lat, lon] polylines, for
+    direct use as react-leaflet's <Polyline positions={...}> prop.
+
+    Source: Marine Regions World EEZ v12, India-filtered.
+    NOTE: approximate boundary, not for navigation.
+    """
+    global _boundary_line_cache
+    try:
+        if _boundary_line_cache is None:
+            _boundary_line_cache = _compute_boundary_line()
+        return {
+            "boundary": _boundary_line_cache,
+            "source": "MarineRegions-EEZv12-India",
+            "disclaimer": "Approximate boundary, not for navigation.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not load boundary data: {e}")
 
 
 @app.post("/query", summary="Run the ORCA pipeline")
