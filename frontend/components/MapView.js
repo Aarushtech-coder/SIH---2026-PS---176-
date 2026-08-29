@@ -174,13 +174,13 @@ export default function MapView({
           />
         )}
          {!hasRealPosition && layers?.landingCentre && (
-  <Marker
-    position={[layers.landingCentre.lat, layers.landingCentre.lon]}
-    icon={pinIcon}
-  >
-    <Popup>{t("map.landingCentre")}</Popup>
-  </Marker>
-)}
+           <Marker
+             position={[layers.landingCentre.lat, layers.landingCentre.lon]}
+              icon={pinIcon}
+               >
+                <Popup>{t("map.landingCentre")}</Popup>
+                  </Marker>
+                    )}
         
         {mapData?.pfz_zones?.map((z) => (
           <CircleMarker
