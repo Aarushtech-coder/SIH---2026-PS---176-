@@ -70,15 +70,6 @@ async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
     body.latitude = coords.latitude;
     body.longitude = coords.longitude;
   }
-  export async function fetchBoundary() {
-  const response = await fetch(`${API_BASE_URL}/boundary`);
-  if (!response.ok) {
-    throw new Error(`Boundary fetch failed: ${response.status}`);
-  }
-  const data = await response.json();
-  return data.boundary; // array of [lat, lon] polylines, ready for layers.boundary
-}
-
   const response = await fetch(`${API_BASE_URL}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -92,7 +83,14 @@ async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
   const turnState = await response.json();
   return replayLiveResponse(turnState, { onTrace, onPlan });
 }
-
+export async function fetchBoundary() {
+  const response = await fetch(`${API_BASE_URL}/boundary`);
+  if (!response.ok) {
+    throw new Error(`Boundary fetch failed: ${response.status}`);
+  }
+  const data = await response.json();
+  return data.boundary; // array of [lat, lon] polylines, ready for layers.boundary
+}
 // Uploads a recorded audio clip to the voice endpoint. Contract (see the
 // message to Role 4): POST /voice-query, multipart/form-data with an
 // "audio" field, response is a TurnState JSON plus a top-level
