@@ -8,6 +8,15 @@ import {
   useState,
 } from "react";
 import { sendQuery, sendVoiceQuery } from "./api";
+// Monotonic-ish unique ID generator. Date.now() alone can collide when two
+// messages are created within the same millisecond (e.g. rapid voice+text
+// submissions), which breaks React's key-based reconciliation. Appending a
+// random suffix guarantees uniqueness even on same-millisecond calls.
+let idCounter = 0;
+function uniqueId(suffix) {
+  idCounter += 1;
+  return `${Date.now()}-${idCounter}-${Math.random().toString(36).slice(2, 7)}-${suffix}`;
+}
 import { useLocalStorage } from "./useLocalStorage";
 import { useGeolocation } from "./useGeolocation";
 import { haversineKm } from "./format";
@@ -65,7 +74,7 @@ export function OrcaProvider({ children }) {
     (turnState, queryText) => {
       setMessages((prev) => [
         ...prev,
-        { id: `${Date.now()}-a`, role: "assistant", turnState },
+        { id: uniqueId("a"), role: "assistant", turnState },
       ]);
 
       // Some intents (e.g. safe_to_sail) don't run geospatial_agent at all,
@@ -94,7 +103,7 @@ export function OrcaProvider({ children }) {
   const failTurn = useCallback((err) => {
     setMessages((prev) => [
       ...prev,
-      { id: `${Date.now()}-e`, role: "error", text: err?.message || "" },
+      { id: uniqueId("e"), role: "error", text: err?.message || "" },
     ]);
   }, []);
 
@@ -113,7 +122,7 @@ export function OrcaProvider({ children }) {
 
       setMessages((prev) => [
         ...prev,
-        { id: `${Date.now()}-u`, role: "user", text: query },
+        { id: uniqueId("u"), role: "user", text: query },
       ]);
       setTrace([]);
       setPipeline([]);
@@ -139,7 +148,7 @@ export function OrcaProvider({ children }) {
   // transcribed_text once the response lands.
   const runVoiceQuery = useCallback(
     async (audioBlob) => {
-      const userMsgId = `${Date.now()}-u`;
+      const userMsgId = uniqueId("u");
       setMessages((prev) => [
         ...prev,
         { id: userMsgId, role: "user", text: null, pending: true },
@@ -182,46 +191,68 @@ export function OrcaProvider({ children }) {
   // coordsOverride lets a caller (e.g. a map pin click) fetch the dashboard
   // tiles for a specific spot instead of the user's own GPS/default location
   // -- same idea as runQuery's coordsOverride.
-  const refreshDashboardSnapshot = useCallback(async (coordsOverride) => {
-    const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
-    const source = coordsOverride ? "pin" : geoLocation ? "gps" : "default";
+  const refreshDashboardSnapshot = useCallback(
+    async (coordsOverride) => {
+      const coords = coordsOverride || geoLocation || DEFAULT_LOCATION;
+      const source = coordsOverride ? "pin" : geoLocation ? "gps" : "default";
 
-    setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
+      setDashboardSnapshot((prev) => ({ ...prev, status: "loading" }));
 
-    try {
-      const [safeState, pfzState] = await Promise.all([
-        sendQuery("What are the current wind and wave conditions, and is it safe to sail?", coords),
-        sendQuery("Where is the nearest fishing zone?", coords),
-      ]);
+      try {
+        const [safeState, pfzState] = await Promise.all([
+          sendQuery(
+            "What are the current wind and wave conditions, and is it safe to sail?",
+            coords,
+          ),
+          sendQuery("Where is the nearest fishing zone?", coords),
+        ]);
 
-      const weather = safeState.agent_outputs?.weather_agent?.data ?? null;
-      const risk = safeState.agent_outputs?.risk_agent?.data ?? null;
-      const ocean = safeState.agent_outputs?.ocean_analytics_agent?.data ?? null;
-      const pfzZones = pfzState.agent_outputs?.marine_data_agent?.data?.pfz_zones ?? [];
+        const weather = safeState.agent_outputs?.weather_agent?.data ?? null;
+        const risk = safeState.agent_outputs?.risk_agent?.data ?? null;
+        const ocean =
+          safeState.agent_outputs?.ocean_analytics_agent?.data ?? null;
+        const pfzZones =
+          pfzState.agent_outputs?.marine_data_agent?.data?.pfz_zones ?? [];
 
-      // marine_data_agent's own distance_from_coast_km is currently a
-      // documented Phase-1 sentinel (-1.0, not implemented upstream yet) --
-      // zone lat/lon are real, so compute the actual distance from here
-      // instead of trusting that field.
-      const distances = pfzZones
-        .filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
-        .map((z) => haversineKm(coords.latitude, coords.longitude, z.latitude, z.longitude));
+        // marine_data_agent's own distance_from_coast_km is currently a
+        // documented Phase-1 sentinel (-1.0, not implemented upstream yet) --
+        // zone lat/lon are real, so compute the actual distance from here
+        // instead of trusting that field.
+        const distances = pfzZones
+          .filter(
+            (z) =>
+              typeof z.latitude === "number" && typeof z.longitude === "number",
+          )
+          .map((z) =>
+            haversineKm(
+              coords.latitude,
+              coords.longitude,
+              z.latitude,
+              z.longitude,
+            ),
+          );
 
-      setDashboardSnapshot({
-        status: "ready",
-        weather,
-        risk,
-        ocean,
-        pfzZones,
-        nearestPfzKm: distances.length ? Math.min(...distances) : null,
-        fetchedAt: new Date().toISOString(),
-        location: coords,
-        source,
-      });
-    } catch (err) {
-      setDashboardSnapshot((prev) => ({ ...prev, status: "error", error: err?.message || "" }));
-    }
-  }, [geoLocation]);
+        setDashboardSnapshot({
+          status: "ready",
+          weather,
+          risk,
+          ocean,
+          pfzZones,
+          nearestPfzKm: distances.length ? Math.min(...distances) : null,
+          fetchedAt: new Date().toISOString(),
+          location: coords,
+          source,
+        });
+      } catch (err) {
+        setDashboardSnapshot((prev) => ({
+          ...prev,
+          status: "error",
+          error: err?.message || "",
+        }));
+      }
+    },
+    [geoLocation],
+  );
 
   const clearSavedQueries = useCallback(
     () => setSavedQueries([]),

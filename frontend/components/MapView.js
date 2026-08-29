@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,12 +9,34 @@ import {
   Polyline,
   CircleMarker,
   Circle,
+  useMap,
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapView.module.css";
 import { useLocale } from "@/lib/i18n/LocaleContext";
+
+// Imperatively re-centres the map when `center` or `zoom` changes, WITHOUT
+// remounting the MapContainer. This is the safe alternative to putting a
+// dynamic `key` on MapContainer, which would tear-down and rebuild the entire
+// Leaflet instance on every data update and race with Leaflet's internal
+// DOM-position tracking (`_leaflet_pos`), causing the runtime TypeError on
+// repeated map clicks.
+function MapRecenter({ lat, lon, zoom }) {
+  const map = useMap();
+  const prevRef = useRef(null);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    if (!prev || prev.lat !== lat || prev.lon !== lon || prev.zoom !== zoom) {
+      prevRef.current = { lat, lon, zoom };
+      map.setView([lat, lon], zoom, { animate: true, duration: 0.5 });
+    }
+  }, [map, lat, lon, zoom]);
+
+  return null;
+}
 
 // Leaflet's default marker icon paths are resolved relative to the bundler
 // output and break under Next.js -- point them at the CDN copies instead.
@@ -89,7 +112,6 @@ export default function MapView({
   return (
     <div className={styles.wrap}>
       <MapContainer
-        key={`${center.lat}-${center.lon}-${zoom}`}
         center={[center.lat, center.lon]}
         zoom={zoom}
         zoomControl={interactive}
@@ -102,6 +124,9 @@ export default function MapView({
         attributionControl={interactive}
         className={`${styles.map} ${interactive && onLocationClick ? styles.clickable : ""}`}
       >
+        {/* Re-centres the map imperatively on data updates -- avoids the
+            MapContainer remount that caused the _leaflet_pos race condition. */}
+        <MapRecenter lat={center.lat} lon={center.lon} zoom={zoom} />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -197,6 +222,7 @@ export default function MapView({
         {mapData?.nearest_boundary_point && (
           <>
             <CircleMarker
+              key="nearest-boundary-point"
               center={[
                 mapData.nearest_boundary_point.lat,
                 mapData.nearest_boundary_point.lon,
@@ -232,6 +258,7 @@ export default function MapView({
         {/* "You are here" marker from live GPS when query has no current_position */}
         {showGpsMarker && (
           <CircleMarker
+            key="gps-position"
             center={[gpsCenter.lat, gpsCenter.lon]}
             radius={8}
             pathOptions={{
