@@ -8,21 +8,34 @@ Implements the Agent Hand-off Contract (see orchestration/CONTRACTS.md):
 - Appends one TraceEntry to state.trace describing what happened
 """
 
-from datetime import datetime, timezone
+import json
+import logging
 import math
+import os
+from datetime import datetime, timezone
+from typing import Any
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
+logger = logging.getLogger(__name__)
+
 try:
-    from shapely.geometry import Point, shape
-    from shapely.ops import nearest_points, unary_union
-    import json
+    from shapely.geometry import Point as _Point
+    from shapely.geometry import shape as _shape
+    from shapely.ops import nearest_points as _nearest_points
+    from shapely.ops import unary_union as _unary_union
 
     SHAPELY_AVAILABLE = True
 except ImportError:
+    _Point: Any = None
+    _shape: Any = None
+    _nearest_points: Any = None
+    _unary_union: Any = None
     SHAPELY_AVAILABLE = False
 
-BOUNDARY_GEOJSON_PATH = "data/india_imbl_eez.geojson"
+BOUNDARY_GEOJSON_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "data", "india_imbl_eez.geojson"
+)
 NM_PER_DEGREE_LAT = 60.0
 
 
@@ -44,21 +57,29 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
 
 
 def _load_boundary():
-    """Merges ALL features in the file into one boundary -- India's EEZ
-    is split across multiple polygons (mainland, Andaman & Nicobar,
-    Lakshadweep), and using only features[0] would silently ignore the rest."""
+    """Merges only India's own EEZ features into one boundary -- the file
+    also contains Bangladesh and Myanmar EEZ polygons, which must be
+    excluded so 'inside' correctly means inside India's own waters, not
+    any neighboring country's."""
     with open(BOUNDARY_GEOJSON_PATH) as f:
         geojson = json.load(f)
-    geometries = [shape(feature["geometry"]) for feature in geojson["features"]]
-    return unary_union(geometries)
+    india_features = [
+        f
+        for f in geojson["features"]
+        if f.get("properties", {}).get("SOVEREIGN1") == "India"
+    ]
+    if not india_features:
+        raise ValueError("No India EEZ features found in boundary geojson")
+    geometries = [_shape(f["geometry"]) for f in india_features]
+    return _unary_union(geometries)
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:
     if inside:
-        return "crossed"
+        return "safe"
     if distance_nm <= 5.0:
         return "approaching"
-    return "safe"
+    return "crossed"
 
 
 def _mock_output():
@@ -84,9 +105,8 @@ def run(state: TurnState) -> TurnState:
 
         if not SHAPELY_AVAILABLE:
             raise RuntimeError("shapely not installed")
-
         boundary = _load_boundary()
-        point = Point(lon, lat)
+        point = _Point(lon, lat)
 
         inside = (
             boundary.contains(point)
@@ -94,7 +114,11 @@ def run(state: TurnState) -> TurnState:
             or boundary.geom_type == "MultiPolygon"
             else False
         )
-        nearest_on_boundary, _ = nearest_points(boundary, point)
+        # Use the polygon's outline (not its filled area) to find the nearest
+        # edge point — distance-to-area is meaningless (always 0) for a point
+        # already inside the polygon.
+        boundary_outline = boundary.boundary
+        nearest_on_boundary, _ = _nearest_points(boundary_outline, point)
         nearest_lat, nearest_lon = nearest_on_boundary.y, nearest_on_boundary.x
 
         distance_nm = _haversine_nm(lat, lon, nearest_lat, nearest_lon)
@@ -109,6 +133,7 @@ def run(state: TurnState) -> TurnState:
         action_detail = f"Computed geofence: {data['zone_status']}, {data['distance_to_imbl_nm']} nm from IMBL"
 
     except Exception as e:
+        logger.warning(f"Geospatial fetch failed: {e}. Falling back to MOCK data.")
         data = _mock_output()
         source = "MOCK"
         action_detail = f"Fell back to MOCK data due to: {e}"
@@ -145,11 +170,15 @@ def check_route_safety(start_lat, start_lon, end_lat, end_lon, num_points=20):
             fraction = i / num_points
             lat = start_lat + (end_lat - start_lat) * fraction
             lon = start_lon + (end_lon - start_lon) * fraction
-            point = Point(lon, lat)
+            point = _Point(lon, lat)
             inside = boundary.contains(point)
 
             if not inside:
-                return False, (lat, lon), fraction * _haversine_nm(start_lat, start_lon, end_lat, end_lon)
+                return (
+                    False,
+                    (lat, lon),
+                    fraction * _haversine_nm(start_lat, start_lon, end_lat, end_lon),
+                )
 
         return True, None, _haversine_nm(start_lat, start_lon, end_lat, end_lon)
     except Exception:
@@ -162,13 +191,15 @@ def suggest_safe_route(start_lat, start_lon, end_lat, end_lon):
     If direct route is unsafe, suggest a detour around the boundary.
     Simple implementation: route through the nearest safe boundary point.
     """
-    is_safe, violation_point, _ = check_route_safety(start_lat, start_lon, end_lat, end_lon)
-    if is_safe:
+    is_safe, violation_point, _ = check_route_safety(
+        start_lat, start_lon, end_lat, end_lon
+    )
+    if is_safe or violation_point is None:
         return [{"lat": start_lat, "lon": start_lon}, {"lat": end_lat, "lon": end_lon}]
 
     boundary = _load_boundary()
-    point = Point(violation_point[1], violation_point[0])
-    nearest_on_boundary, _ = nearest_points(boundary, point)
+    point = _Point(violation_point[1], violation_point[0])
+    nearest_on_boundary, _ = _nearest_points(boundary, point)
 
     return [
         {"lat": start_lat, "lon": start_lon},
@@ -181,8 +212,8 @@ def distance_to_imbl(lat, lon):
     """Calculate distance in nautical miles from any point to the IMBL."""
     try:
         boundary = _load_boundary()
-        point = Point(lon, lat)
-        nearest_on_boundary, _ = nearest_points(boundary, point)
+        point = _Point(lon, lat)
+        nearest_on_boundary, _ = _nearest_points(boundary, point)
         return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
     except Exception:
         return 999.0  # Fallback: treat as far away rather than crash

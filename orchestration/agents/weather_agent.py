@@ -18,16 +18,17 @@ If no active cyclone bulletins are found, cyclone_alert = None.
 On any failure, the agent falls back to mock data so the pipeline never crashes.
 """
 
-from orchestration.state import TurnState, AgentOutput, TraceEntry
-from datetime import datetime, timedelta
-import json
 import logging
-import ssl
-import certifi
 import math
 import re
-import urllib.request
+import ssl
 import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
+
+import certifi
+
+from orchestration.state import AgentOutput, TraceEntry, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -238,8 +239,7 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         except Exception as e:
             last_error = e
             logger.warning(
-                f"THREDDS fetch failed for date {date_str}: {e}. "
-                f"Trying next date..."
+                f"THREDDS fetch failed for date {date_str}: {e}. Trying next date..."
             )
             continue
 

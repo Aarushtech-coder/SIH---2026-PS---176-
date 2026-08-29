@@ -1,5 +1,5 @@
-from typing import Any
 import uuid
+from typing import Any
 
 from langgraph.graph import StateGraph
 
@@ -12,7 +12,6 @@ from orchestration.agents import (
     weather_agent,
 )
 from orchestration.state import TurnState
-
 
 AGENT_RUNNERS = {
     "weather_agent": weather_agent.run,
@@ -116,6 +115,7 @@ def run_query(
     raw_query: str,
     session_id: str = "default",
     turn_id: str | None = None,
+    user_location: dict | None = None,
 ) -> TurnState:
     # Auto-generate a unique turn_id if not supplied.
     if turn_id is None:
@@ -127,13 +127,20 @@ def run_query(
     # Ask the planner to rewrite the query using prior context when relevant.
     context = planner.resolve_context(raw_query, previous_turn)
 
+    # GPS priority: an explicitly-passed user_location (fresh device reading)
+    # always overrides whatever resolve_context() may have inherited from a
+    # previous turn. Fall back to the inherited context value when None.
+    resolved_location = (
+        user_location if user_location is not None else context.get("user_location")
+    )
+
     # Build the initial TurnState with context-resolved values pre-filled so the
     # planner node inside the graph sees them and will not overwrite resolved_query.
     state = TurnState(
         turn_id=turn_id,
         raw_query=raw_query,
         resolved_query=context["resolved_query"],
-        user_location=context.get("user_location"),
+        user_location=resolved_location,
         query_date=context.get("query_date"),
     )
 

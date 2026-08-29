@@ -6,6 +6,7 @@ import AnswerCard from "./AnswerCard";
 import { IconSend, IconMic, IconAlert } from "@/components/icons/Icons";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { useMounted } from "@/lib/useMounted";
 
 const SUGGESTION_KEYS = ["suggestion.safe", "suggestion.nearestZone", "suggestion.boundary"];
 
@@ -14,17 +15,30 @@ const VOICE_SUPPORTED =
 
 export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
   const { t } = useLocale();
-  const [settings] = useLocalStorage("orca.settings", { voiceInput: false });
+  const [settings] = useLocalStorage("orca.settings", { voiceInput: true });
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState(null);
+  const mounted = useMounted();
   const listRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const playedAudios = useRef(new Set());
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant" && lastMsg.turnState?.audio_b64) {
+      if (!playedAudios.current.has(lastMsg.id)) {
+        playedAudios.current.add(lastMsg.id);
+        const audio = new Audio(`data:audio/mp3;base64,${lastMsg.turnState.audio_b64}`);
+        audio.play().catch(e => console.error("Audio playback failed:", e));
+      }
+    }
+  }, [messages]);
 
   function submit(e) {
     e.preventDefault();
@@ -72,7 +86,11 @@ export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
     }
   }
 
-  const voiceEnabled = settings.voiceInput && VOICE_SUPPORTED;
+  // Optimistic rendering: assume voice is enabled during SSR and hydration.
+  // This prevents the mic button from "popping in" late. If the user disabled it
+  // or the browser doesn't support it, it will gracefully disappear after mount.
+  const voiceEnabled = mounted ? (settings.voiceInput !== false && VOICE_SUPPORTED) : true;
+
 
   return (
     <section className={styles.panel}>

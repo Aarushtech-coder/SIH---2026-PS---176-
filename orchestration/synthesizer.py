@@ -176,11 +176,27 @@ def run(state: TurnState) -> TurnState:
         sections, citations = _summarize_outputs(state)
 
         # Disclaimer logic (same in both LLM and fallback paths).
+        # Disclaimer logic (same in both LLM and fallback paths).
         if state.intent in {"safe_to_sail", "geofence_check"}:
-            disclaimer = (
-                "Safety note: this mock response is not a substitute for official "
-                "IMD, INCOIS, coast guard, or local maritime advisories."
+            any_mock = any(
+                output.source == "MOCK"
+                for output in state.agent_outputs.values()
+                if output is not None
             )
+            if any_mock:
+                disclaimer = (
+                    "Safety note: some of this response uses mock/placeholder data "
+                    "and is not a substitute for official IMD, INCOIS, coast guard, "
+                    "or local maritime advisories."
+                )
+            else:
+                disclaimer = (
+                    "Safety note: this is a decision-support tool based on live IMD/"
+                    "INCOIS data sources, not an autonomous safety authority. It does "
+                    "not replace official advisories — please verify with INCOIS "
+                    "(incois.gov.in) or your local Coast Guard/Fisheries office before "
+                    "departure."
+                )
         else:
             disclaimer = None
 
@@ -271,17 +287,81 @@ def run(state: TurnState) -> TurnState:
         state.final_answer = "Unable to generate a response at this time."
         state.citations = []
         state.disclaimer = None
-        try:
-            state.trace.append(
-                TraceEntry(
-                    agent="synthesizer",
-                    action="produce_final_answer",
-                    input_summary="synthesis failed",
-                    output_summary="Returned a safe default response.",
-                    timestamp=datetime.now(tz=timezone.utc).isoformat(),
-                )
+        state.trace.append(
+            TraceEntry(
+                agent="synthesizer",
+                action="produce_final_answer",
+                input_summary="synthesis failed",
+                output_summary="Returned a safe default response.",
+                timestamp=datetime.now(tz=timezone.utc).isoformat(),
             )
-        except Exception:
-            pass
+        )
+
+    # -----------------------------------------------------------------------
+    # Populate map_data for the frontend MapView component.
+    # Wrapped in try/except so malformed/missing agent data never crashes the
+    # response. Uses "lat"/"lon" keys as expected by the frontend contract.
+    # -----------------------------------------------------------------------
+    try:
+        map_data: dict | None = None
+
+        if state.intent == "nearest_pfz":
+            marine_out = state.agent_outputs.get("marine_data_agent")
+            if marine_out is not None:
+                raw_zones = marine_out.data.get("pfz_zones", [])
+                pfz_zones = []
+                for z in raw_zones:
+                    # Contract uses "latitude"/"longitude"; frontend expects "lat"/"lon"
+                    if "latitude" not in z or "longitude" not in z:
+                        continue
+                    pfz_zones.append(
+                        {
+                            "zone_id": z.get("zone_id", ""),
+                            "lat": z["latitude"],
+                            "lon": z["longitude"],
+                        }
+                    )
+                if pfz_zones:
+                    map_data = {
+                        "pfz_zones": pfz_zones,
+                        "center": {
+                            "lat": pfz_zones[0]["lat"],
+                            "lon": pfz_zones[0]["lon"],
+                        },
+                        "zoom": 9,
+                    }
+        elif state.intent == "geofence_check":
+            geo_out = state.agent_outputs.get("geospatial_agent")
+            if geo_out is not None:
+                d = geo_out.data
+                built: dict = {}
+                if "current_position" in d:
+                    built["current_position"] = d["current_position"]
+                    built["center"] = d["current_position"]
+                if "nearest_boundary_point" in d:
+                    built["nearest_boundary_point"] = d["nearest_boundary_point"]
+                if "zone_status" in d:
+                    built["zone_status"] = d["zone_status"]
+                if "distance_to_imbl_nm" in d:
+                    built["distance_to_imbl_nm"] = d["distance_to_imbl_nm"]
+                built["zoom"] = 8
+                if built:
+                    map_data = built
+        elif state.intent in {"safe_to_sail", "weather_tide"}:
+            loc = state.user_location
+            if loc and "lat" in loc and "lon" in loc:
+                map_data = {
+                    "center": {"lat": loc["lat"], "lon": loc["lon"]},
+                    "zoom": 10,
+                }
+
+        state.map_data = map_data
+    except Exception as e:
+        # Never let map_data errors break the response; leave map_data as None,
+        # but log so a silent failure here is never invisible again.
+        import traceback
+
+        print(f"map_data build failed: {e}")
+        traceback.print_exc()
 
     return state

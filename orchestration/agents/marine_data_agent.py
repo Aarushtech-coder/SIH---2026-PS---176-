@@ -16,12 +16,13 @@ On any failure (network, timeout, bad schema, empty data), the agent falls back
 to mock data so the pipeline never crashes.
 """
 
-from orchestration.state import TurnState, AgentOutput, TraceEntry
-from datetime import datetime, timedelta
 import json
 import logging
-import urllib.request
 import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
+
+from orchestration.state import AgentOutput, TraceEntry, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ PFZ_WFS_URL = (
 REQUEST_TIMEOUT_SECONDS = 15
 
 # Standard PFZ advisory validity window in days. INCOIS PFZ advisories are
-# restricted to a 24-hour (1 day) validity window because ocean features 
+# restricted to a 24-hour (1 day) validity window because ocean features
 # (thermal fronts/currents) shift dynamically.
 ADVISORY_VALIDITY_DAYS = 1
 
@@ -47,6 +48,7 @@ ADVISORY_VALIDITY_DAYS = 1
 # ---------------------------------------------------------------------------
 # Transform helpers
 # ---------------------------------------------------------------------------
+
 
 def _flatten_coordinates(coordinates: list) -> list:
     """Flatten nested GeoJSON coordinates into a flat list of [lon, lat] pairs.
@@ -194,7 +196,9 @@ def _derive_advisory_validity(features: list) -> tuple:
                 # Day 1 = Jan 1st, so we add (day_num - 1) to Jan 1
                 advisory_date = datetime(year, 1, 1) + timedelta(days=day_num - 1)
                 valid_from = advisory_date.isoformat()
-                valid_until = (advisory_date + timedelta(days=ADVISORY_VALIDITY_DAYS)).isoformat()
+                valid_until = (
+                    advisory_date + timedelta(days=ADVISORY_VALIDITY_DAYS)
+                ).isoformat()
                 return (valid_from, valid_until)
             except (ValueError, TypeError, OverflowError):
                 logger.warning(
@@ -211,6 +215,7 @@ def _derive_advisory_validity(features: list) -> tuple:
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------
+
 
 def _fetch_pfz_geojson() -> dict:
     """Fetch the PFZ GeoJSON FeatureCollection from the INCOIS WFS endpoint.
@@ -266,6 +271,7 @@ def _fetch_pfz_geojson() -> dict:
 # Mock fallback
 # ---------------------------------------------------------------------------
 
+
 def _build_mock_data() -> dict:
     """Return a contract-compliant mock response for fallback scenarios.
 
@@ -296,6 +302,7 @@ def _build_mock_data() -> dict:
 # ---------------------------------------------------------------------------
 # Agent entry point
 # ---------------------------------------------------------------------------
+
 
 def run(state: TurnState) -> TurnState:
     """Fetch INCOIS PFZ data, transform to contract schema, write to state.
@@ -331,8 +338,7 @@ def run(state: TurnState) -> TurnState:
 
         # ── Step 2: Transform each feature ──
         zones = [
-            _transform_feature_to_zone(feature, i)
-            for i, feature in enumerate(features)
+            _transform_feature_to_zone(feature, i) for i, feature in enumerate(features)
         ]
 
         # ── Step 3: Derive advisory validity ──
