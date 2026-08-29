@@ -188,12 +188,6 @@ useEffect(() => {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const geo = mapData?.current_position ? mapData : null;
-  const layers = {
-  ...MAP_LAYERS,
-  pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
-  boundary: realBoundary?.length ? realBoundary : MAP_LAYERS.boundary,
-  ...(mapCenter ? { center: mapCenter } : {}),
-};
   const realPfzZones = dashboardSnapshot.pfzZones
     ?.filter((z) => typeof z.latitude === "number" && typeof z.longitude === "number")
     .map((z) => ({ id: z.zone_id, lat: z.latitude, lon: z.longitude }));
@@ -203,6 +197,7 @@ useEffect(() => {
   const layers = {
     ...MAP_LAYERS,
     pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
+    boundary: realBoundary?.length ? realBoundary : MAP_LAYERS.boundary,
     ...(mapCenter ? { center: mapCenter } : {}),
   };
 

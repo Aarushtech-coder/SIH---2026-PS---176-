@@ -138,12 +138,13 @@ def _compute_verdict(weather: dict, ocean: dict | None = None) -> tuple[str, lis
     if ocean:
         sst = ocean.get("sst_celsius")
         if sst is not None:
-            reasons.append(f"sea surface temperature {sst}\u00b0C (informational, not used in verdict)")
+            reasons.append(
+                f"sea surface temperature {sst}\u00b0C (informational, not used in verdict)"
+            )
 
     if not reasons:
-        reasons.append("all parameters within normal range")
-
-    return verdict, reasons
+        if not reasons:
+            reasons.append("all parameters within normal range")
 
 
 def run(state: TurnState) -> TurnState:
@@ -151,7 +152,10 @@ def run(state: TurnState) -> TurnState:
         weather_output = state.agent_outputs.get("weather_agent")
         weather = weather_output.data if weather_output else {}
 
-        verdict, reasons = _compute_verdict(weather)
+        ocean_output = state.agent_outputs.get("ocean_analytics_agent")
+        ocean = ocean_output.data if ocean_output else {}
+
+        verdict, reasons = _compute_verdict(weather, ocean)
 
         data = {
             "verdict": verdict,
