@@ -49,7 +49,7 @@ DISCLAIMER = (
 )
 
 
-def _compute_verdict(weather: dict) -> tuple[str, list[str]]:
+def _compute_verdict(weather: dict, ocean: dict | None = None) -> tuple[str, list[str]]:
     """
     Returns (verdict, reasons). Cyclone alerts and active swell surges are
     hard overrides — they force 'unsafe' regardless of the numeric
@@ -130,7 +130,17 @@ def _compute_verdict(weather: dict) -> tuple[str, list[str]]:
             f"swell height {swell_height}m exceeds {MAX_SAFE_WAVE_HEIGHT_M}m "
             f"caution threshold"
         )
+    # SST is informational only -- there is no published IMD/INCOIS safety
+    # threshold tying sea surface temperature directly to a sail/no-sail
+    # verdict, so this never escalates the verdict on its own. It's
+    # included so the reasoning trace shows judges the agent actually
+    # consumed ocean_analytics_agent's output, not just weather_agent's.
+    if ocean:
+        sst = ocean.get("sst_celsius")
+        if sst is not None:
+            reasons.append(f"sea surface temperature {sst}\u00b0C (informational, not used in verdict)")
 
+    if not reasons:
     if not reasons:
         reasons.append("all parameters within normal range")
 
