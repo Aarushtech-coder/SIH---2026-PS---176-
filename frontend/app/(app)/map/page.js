@@ -254,11 +254,11 @@ useEffect(() => {
         }
       />
 
-      {showFallbackBanner && (
+      {/* {showFallbackBanner && (
         <div className={styles.fallbackBanner}>
           📍 Showing Chennai (default) — enable location for your area
         </div>
-      )}
+      )} */}
 
       <div className={styles.toolbar}>
         {LAYER_TOGGLES.map(({ key, labelKey, swatch }) => (
