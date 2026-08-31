@@ -43,7 +43,7 @@ const SEA_CONDITION_KEY = {
 
 // ─── Nominatim geocoding ────────────────────────────────────────────────────
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-const USER_AGENT = "SIH2026-MarineSafety/1.0 (contact: sih2026@example.com)";
+const USER_AGENT = "ORCA-MarineSafety/1.0 (+https://github.com/Aarushtech-coder/SIH---2026-PS---176-)";
 
 async function geocode(query) {
   const url = `${NOMINATIM_URL}?q=${encodeURIComponent(query)}&format=json&limit=5&addressdetails=0`;
