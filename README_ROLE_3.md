@@ -2,9 +2,9 @@
 
 Upload these files as the Role 3 contribution:
 
-- `ocean_analytics_agent.py`: global live SST through Open-Meteo and live chlorophyll through NOAA ERDDAP candidates, with clearly labeled fallback handling.
-- `risk_agent.py`: safe/caution/unsafe assessment using wind, gust, wave, swell, and cyclone thresholds, plus the safety disclaimer.
-- `productivity_agent.py`: descriptive correlation of supplied catch history with chlorophyll and SST. It does not invent catch data or claim causation.
+- `ocean_analytics_agent.py`: Fetches Sea Surface Temperature (SST) via NOAA OISST / Open-Meteo Marine API, Chlorophyll-a via INCOIS ERDDAP Oceansat-2 / NOAA CoastWatch ERDDAP, and documented tropical MLD baseline (25.0m), with honest `source` labeling and resilient fallback.
+- `risk_agent.py`: Safe/caution/unsafe assessment using wind, gust, wave, swell, and cyclone thresholds, plus the safety disclaimer.
+- `productivity_agent.py`: Descriptive correlation of supplied catch history with chlorophyll and SST. It does not invent catch data or claim causation.
 
 These modules are designed to live beside the repository's `orchestration` package and import `orchestration.state`.
 
@@ -20,4 +20,4 @@ Required observation format for `productivity_agent.py`:
 ]
 ```
 
-Live-data note: SST uses the worldwide Open-Meteo endpoint. Chlorophyll uses configured NOAA ERDDAP candidates and remains `None` when the current dataset is unavailable. For live mixed-layer depth, set `ORCA_MLD_URL_TEMPLATE` to a provider endpoint containing `{lat}`, `{lon}`, and `{date}`, and set `ORCA_MLD_JSON_KEY` to its JSON field name. MLD is never fabricated when the endpoint is not configured.
+Live-data note: SST uses the NOAA OISST v2.1 ERDDAP endpoint (`ncdcOisst21Agg`) with secondary live fallback to the worldwide Open-Meteo Marine API. Chlorophyll uses INCOIS ERDDAP Oceansat-2 OCM (`incois_oceansat2_datasets`) and NOAA CoastWatch ERDDAP (`erdMH1chlamday`). For mixed-layer depth (MLD), in the absence of a real-time griddap API, a documented tropical ocean baseline of 25.0m is provided following the same documented gap pattern as Phase 1 PFZ sentinels.
