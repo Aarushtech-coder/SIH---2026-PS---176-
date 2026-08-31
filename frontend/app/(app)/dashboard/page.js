@@ -39,6 +39,12 @@ const INTENT_KEYS = {
   weather_tide: "intent.weather_tide",
 };
 
+// Same default fallback used across the app (store.js, Topbar, MAP_LAYERS) --
+// passed explicitly below so "Back to my location" works on the first click
+// even though clearing manualLocation and re-fetching are two separate,
+// asynchronously-batched state updates.
+const CHENNAI_DEFAULT = { latitude: 13.0827, longitude: 80.2707 };
+
 const VERDICT_TONE = { safe: "good", caution: "warning", unsafe: "critical" };
 const SEA_CONDITION_KEY = { safe: "seaCondition.calm", caution: "seaCondition.moderate", unsafe: "seaCondition.rough" };
 
@@ -50,7 +56,7 @@ function greetingKey() {
 }
 
 export default function DashboardPage() {
-  const { savedQueries, dashboardSnapshot, refreshDashboardSnapshot } = useOrca();
+  const { savedQueries, dashboardSnapshot, refreshDashboardSnapshot, geoLocation, setManualLocation } = useOrca();
   const { t } = useLocale();
   const mounted = useMounted();
 
@@ -135,13 +141,20 @@ export default function DashboardPage() {
           {status === "ready" && source === "default" && (
             <p className={styles.locationNote}>{t("dashboard.usingDefaultLocation")}</p>
           )}
-          {status === "ready" && source === "pin" && location && (
+          {status === "ready" && (source === "pin" || source === "manual") && location && (
             <p className={styles.locationNote}>
               {t("dashboard.usingPinnedLocation", {
                 lat: location.latitude.toFixed(2),
                 lon: location.longitude.toFixed(2),
               })}{" "}
-              <button type="button" onClick={() => refreshDashboardSnapshot()} className={styles.inlineLink}>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualLocation(null);
+                  refreshDashboardSnapshot(geoLocation || CHENNAI_DEFAULT);
+                }}
+                className={styles.inlineLink}
+              >
                 {t("dashboard.backToMyLocation")}
               </button>
             </p>
