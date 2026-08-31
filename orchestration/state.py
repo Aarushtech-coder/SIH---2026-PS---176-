@@ -34,6 +34,7 @@ class TurnState(BaseModel):
         "ocean_analytics_agent": None,
         "risk_agent": None,
         "geospatial_agent": None,
+        "productivity_agent": None,
     }
 
     trace: list[TraceEntry] = []
@@ -42,6 +43,12 @@ class TurnState(BaseModel):
     citations: list[str] = []
     disclaimer: str | None = None
     map_data: dict | None = None
+
+    map_data: dict | None = None
+    # Optional catch-history observations supplied by the app for
+    # productivity_agent's chlorophyll/SST correlation. Each item is a dict
+    # like {"catch_kg": float, "chlorophyll_mg_per_m3": float, "sst_celsius": float|None}.
+    catch_history: list[dict] | None = None
 
 
 class Session(BaseModel):
