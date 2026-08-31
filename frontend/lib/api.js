@@ -91,6 +91,22 @@ export async function fetchBoundary() {
   const data = await response.json();
   return data.boundary; // array of [lat, lon] polylines, ready for layers.boundary
 }
+export async function fetchSafeRoute(coords) {
+  if (!coords || coords.latitude == null || coords.longitude == null) {
+    return null;
+  }
+  const response = await fetch(`${API_BASE_URL}/safe-route`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude }),
+  });
+  if (!response.ok) {
+    console.error(`Safe route fetch failed: ${response.status}`);
+    return null;
+  }
+  const data = await response.json();
+  return data; // { route: [...], nearest_pfz: {...} }
+}
 // Uploads a recorded audio clip to the voice endpoint. Contract (see the
 // message to Role 4): POST /voice-query, multipart/form-data with an
 // "audio" field, response is a TurnState JSON plus a top-level

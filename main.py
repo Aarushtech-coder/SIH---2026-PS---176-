@@ -17,7 +17,7 @@ import os
 import tempfile
 import asyncio
 import traceback
-import uuid 
+import uuid
 import json
 from shapely.geometry import shape
 from shapely.ops import unary_union
@@ -66,6 +66,11 @@ class QueryRequest(BaseModel):
     longitude: float | None = None
 
 
+class SafeRouteRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+
 # ---------------------------------------------------------------------------
 # Whisper model — loaded lazily on first voice request, then cached, so
 # `uvicorn --reload` startup and text-only requests aren't slowed down by a
@@ -103,6 +108,8 @@ async def root():
 async def health():
     """Simple liveness probe."""
     return {"status": "ok", "message": "ORCA orchestration API is running"}
+
+
 # ---------------------------------------------------------------------------
 # Boundary endpoint -- serves India's EEZ/IMBL boundary line for map rendering
 # ---------------------------------------------------------------------------
@@ -128,7 +135,8 @@ def _compute_boundary_line() -> list[list[list[float]]]:
         geojson = json.load(f)
 
     india_features = [
-        f for f in geojson["features"]
+        f
+        for f in geojson["features"]
         if f.get("properties", {}).get("SOVEREIGN1") == "India"
     ]
     if not india_features:
@@ -142,7 +150,11 @@ def _compute_boundary_line() -> list[list[list[float]]]:
     # while cutting point count from ~10k down to a browser-friendly size.
     simplified = outline.simplify(0.02, preserve_topology=True)
 
-    lines = list(simplified.geoms) if simplified.geom_type == "MultiLineString" else [simplified]
+    lines = (
+        list(simplified.geoms)
+        if simplified.geom_type == "MultiLineString"
+        else [simplified]
+    )
 
     # India's EEZ outline includes hundreds of small Andaman & Nicobar
     # islands as separate tiny rings -- keeping all of them makes the map
@@ -179,7 +191,58 @@ def get_boundary():
             "disclaimer": "Approximate boundary, not for navigation.",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not load boundary data: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Could not load boundary data: {e}"
+        )
+
+
+from orchestration.agents.marine_data_agent import (
+    _fetch_pfz_geojson,
+    _transform_feature_to_zone,
+    _build_mock_data,
+)
+from orchestration.agents.geospatial_agent import suggest_safe_route, _haversine_nm
+
+
+@app.post("/safe-route", summary="Get safe route to nearest PFZ")
+def safe_route(req: SafeRouteRequest):
+    try:
+        try:
+            geojson = _fetch_pfz_geojson()
+            features = geojson["features"]
+            zones = [_transform_feature_to_zone(f, i) for i, f in enumerate(features)]
+        except Exception as e:
+            print(f"Failed to fetch real PFZ data, falling back to mock: {e}")
+            zones = _build_mock_data()["pfz_zones"]
+
+        if not zones:
+            raise HTTPException(status_code=404, detail="No PFZ zones found")
+
+        # Find nearest PFZ
+        nearest_zone = None
+        min_dist = float("inf")
+        for z in zones:
+            # Note: _transform_feature_to_zone returns "latitude" and "longitude"
+            dist = _haversine_nm(
+                req.latitude, req.longitude, z["latitude"], z["longitude"]
+            )
+            if dist < min_dist:
+                min_dist = dist
+                nearest_zone = z
+
+        # Calculate safe route
+        route = suggest_safe_route(
+            req.latitude,
+            req.longitude,
+            nearest_zone["latitude"],
+            nearest_zone["longitude"],
+        )
+        return {"route": route, "nearest_pfz": nearest_zone}
+    except Exception as exc:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/query", summary="Run the ORCA pipeline")
@@ -210,8 +273,11 @@ async def query(request: QueryRequest):
 
     try:
         # Pass session_id and user_location — turn_id is auto-generated inside run_query.
-         result = await asyncio.to_thread(
-            run_query, raw_query=request.text, session_id=session_id, user_location=user_location
+        result = await asyncio.to_thread(
+            run_query,
+            raw_query=request.text,
+            session_id=session_id,
+            user_location=user_location,
         )
     except Exception as exc:
         # Print the full traceback to the server console for hackathon debugging.

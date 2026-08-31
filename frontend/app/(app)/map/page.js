@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import { fetchBoundary } from "@/lib/api";
+import { fetchBoundary, fetchSafeRoute } from "@/lib/api";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -90,6 +90,30 @@ useEffect(() => {
     .then(setRealBoundary)
     .catch((err) => console.error("Failed to fetch boundary:", err));
 }, []);
+
+  const [safeRouteData, setSafeRouteData] = useState(null);
+  const activeLoc = manualLocation || geoLocation;
+  const gpsCenter = activeLoc
+    ? { lat: activeLoc.latitude, lon: activeLoc.longitude }
+    : null;
+
+  useEffect(() => {
+    if (activeLoc) {
+      fetchSafeRoute({ latitude: activeLoc.latitude, longitude: activeLoc.longitude })
+        .then((data) => {
+          if (data && data.route) {
+            setSafeRouteData([
+              {
+                id: "dynamic-safe-route",
+                label: "Suggested Safe Route to nearest PFZ",
+                points: data.route.map((p) => [p.lat, p.lon]),
+              },
+            ]);
+          }
+        })
+        .catch((err) => console.error("Failed to fetch safe route:", err));
+    }
+  }, [activeLoc]);
   // ── Map center override (set by search or incoming ?lat/?lon param) ───────
   const [mapCenter, setMapCenter] = useState(null); // {lat, lon} or null
 
@@ -198,13 +222,10 @@ useEffect(() => {
     ...MAP_LAYERS,
     pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
     boundary: realBoundary?.length ? realBoundary : MAP_LAYERS.boundary,
+    fishingRoutes: safeRouteData || MAP_LAYERS.fishingRoutes,
     ...(mapCenter ? { center: mapCenter } : {}),
   };
 
-  const activeLoc = manualLocation || geoLocation;
-  const gpsCenter = activeLoc
-    ? { lat: activeLoc.latitude, lon: activeLoc.longitude }
-    : null;
 
   // Show fallback banner when GPS isn't available
   const showFallbackBanner =
