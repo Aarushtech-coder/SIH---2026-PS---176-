@@ -16,3 +16,4 @@ venv/
 .vscode/
 *.swp
 pytest_output.txt
+orchestration/.session_cache.json

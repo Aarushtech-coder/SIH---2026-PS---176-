@@ -22,7 +22,7 @@ AGENTS_BY_INTENT = {
     "nearest_pfz": ["marine_data_agent", "geospatial_agent"],
     "safe_to_sail": ["weather_agent", "ocean_analytics_agent", "risk_agent"],
     "weather_tide": ["weather_agent", "ocean_analytics_agent"],
-    "geofence_check": ["geospatial_agent", "risk_agent"],
+    "geofence_check": ["geospatial_agent"],
     # No specialist agents needed for these two; synthesizer handles them directly.
     "general_ocean_info": [],
     "out_of_scope": [],
@@ -79,24 +79,36 @@ _FOLLOWUP_SIGNALS = [
 ]
 
 
+_geocode_cache: dict[str, dict | None] = {}
+
+
 def _geocode_location(location_name: str) -> dict | None:
-    """Hit OSM Nominatim to convert location name to lat/lon."""
+    """Hit OSM Nominatim to convert location name to lat/lon. Cached in-process
+    since the same location (e.g. "Chennai") is often asked repeatedly in a
+    demo session, and Nominatim's usage policy caps requests at ~1/sec."""
     import urllib.request
     import urllib.parse
     import json
 
+    cache_key = location_name.strip().lower()
+    if cache_key in _geocode_cache:
+        return _geocode_cache[cache_key]
+
     url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_name)}&format=json&limit=1&addressdetails=0"
     req = urllib.request.Request(url, headers={"User-Agent": "ORCA-PlannerAgent/1.0"})
+    result = None
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
                 if data:
                     lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
-                    return {"lat": lat, "lon": lon}
+                    result = {"lat": lat, "lon": lon}
     except Exception:
         pass
-    return None
+
+    _geocode_cache[cache_key] = result
+    return result
 
 
 def _detect_language_from_unicode(text: str) -> str:
