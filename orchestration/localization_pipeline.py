@@ -97,6 +97,12 @@ def run_localized_query(audio_path: str, session_id: str = "default", turn_id: s
     }
 
 
+class SpeechToText:
+    """Wrapper class for backwards compatibility with main.py's voice endpoint."""
+    def transcribe(self, audio_path: str):
+        return speech_to_text(audio_path)
+
+
 if __name__ == "__main__":
     # Quick manual test -- record a short clip of yourself speaking a query,
     # save as sample_query.wav in the repo root, then run this file directly.

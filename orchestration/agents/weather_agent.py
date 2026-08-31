@@ -228,7 +228,7 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
             # Cyclone alert — separate source, best-effort
             match_failed = False
             try:
-                alert, match_failed = _check_cyclone_alert()
+                alert, match_failed = _check_cyclone_alert(lat=lat, lon=lon)
                 data["cyclone_alert"] = alert
             except Exception as cyc_err:
                 logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
@@ -252,83 +252,113 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _check_cyclone_alert() -> tuple[str | None, bool]:
-    """Check RSMC New Delhi for active cyclone bulletins.
+def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> tuple[str | None, bool]:
+    """Check RSMC New Delhi for active cyclone bulletins and localized basin alerts.
 
-    Fetches the RSMC homepage and looks for bulletin PDF links.
-    If all links contain "No_Cyclone" or "no_cyclone" in the filename,
-    returns (None, False) (no active cyclone).
+    Fetches the RSMC homepage and scopes specifically to official advisory
+    products (National Bulletin, TCAC Bulletin, Hourly Bulletin, Track Graphics,
+    Special Tropical Weather Outlook) while ignoring static documentation and routine reports.
 
-    NOTE: The cyclone severity mapping below is a keyword heuristic checked
-    against the bulletin filename/URL text, not a structural parse of the
-    actual PDF bulletin content. This is a documented approximation, not
-    an official IMD severity data feed.
+    Applies geographic basin filtering (Bay of Bengal vs. Arabian Sea) based on
+    the user's longitude if provided.
 
     Returns:
         A tuple of (alert_level, keyword_match_failed).
         alert_level: "Yellow", "Orange", "Red", or None.
-        keyword_match_failed: True if a bulletin is active but matches no keywords.
+        keyword_match_failed: True if an emergency bulletin is active in the user's basin but matches no severity keywords.
     """
     req = urllib.request.Request(
         RSMC_URL,
         headers={"User-Agent": "ORCA-WeatherAgent/1.0"},
     )
 
-    with urllib.request.urlopen(
-        req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-    ) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
-
-    # Look for PDF bulletin links
-    pdf_links = re.findall(r'href=["\']([^"\']*\.pdf)["\']', html, re.IGNORECASE)
-
-    if not pdf_links:
-        # No PDF links found at all — assume no active cyclone
+    try:
+        with urllib.request.urlopen(
+            req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+        ) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning(f"RSMC homepage request failed: {e}")
         return None, False
 
-    # Check if ALL PDF links are "No Cyclone" placeholders
-    active_bulletins = []
-    for link in pdf_links:
+    # Extract official advisory product sections (e.g. Cyclone Warnings/Advisory, TCAC, Graphics)
+    warning_section_match = re.search(
+        r'(?:<h3>\s*Cyclone Warnings/Advisory\s*</h3>|<h3>\s*Cyclone Warning Graphics\s*</h3>|Tropical Weather Outlook).*?(?:</ul>|</div>)',
+        html,
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    candidate_links = []
+    if warning_section_match:
+        section_html = warning_section_match.group(0)
+        candidate_links.extend(re.findall(r'href=["\']([^"\']*\.pdf)["\']', section_html, re.IGNORECASE))
+
+    # Also capture warning-specific upload links while skipping static site assets
+    raw_pdf_links = re.findall(r'href=["\']([^"\']*\.pdf)["\']', html, re.IGNORECASE)
+    for link in raw_pdf_links:
         link_lower = link.lower()
-        if "no_cyclone" in link_lower or "no cyclone" in link_lower:
+        if any(w in link_lower for w in ["uploads/archive", "uploads/uploads", "national_bulletin", "tropical_weather_outlook", "cyclone"]):
+            candidate_links.append(link)
+
+    candidate_links = list(set(candidate_links))
+
+    # Filter out static documentation, climatology atlases, and guidelines
+    ignore_patterns = [
+        "dm_act", "ndma", "policy", "plan", "faq", "terminology", "damage",
+        "evolution", "tc-names", "brochure", "survey", "climatology", "atlas",
+        "metadata", "incois_mhvm", "duty_charter", "rainfall.pdf", "gale_wind.pdf",
+        "storm_surge.pdf", "ships_cert", "souvenir", "annual_veri", "fdp_implementation",
+        "press_release", "gmdss", "sat_bltn", "satbltn", "splbltn", "extended_range",
+    ]
+
+    active_bulletins = []
+    for link in candidate_links:
+        link_lower = link.lower()
+        # Skip standard "No Cyclone" placeholders
+        if any(nc in link_lower for nc in ["no_cyclone", "no cyclone", "no_fdp", "no fdp"]):
             continue
-        # Skip non-bulletin PDFs (guidelines, reports, etc.)
-        if any(
-            skip in link_lower
-            for skip in [
-                "dm_act",
-                "ndma",
-                "policy",
-                "plan",
-                "faq",
-                "terminology",
-                "damage",
-                "evolution",
-                "tc-names",
-                "brochure",
-            ]
-        ):
+        if any(ign in link_lower for ign in ignore_patterns):
             continue
         active_bulletins.append(link)
 
+    # If all warning slots are "No Cyclone" placeholders or no active storm bulletins exist
     if not active_bulletins:
         return None, False
 
-    # Define strict full phrases for matching
+    # Basin detection based on longitude
+    # Longitudes > 78.5E correspond to Bay of Bengal / East Coast, <= 78.5E correspond to Arabian Sea / West Coast
+    user_basin = None
+    if lon is not None:
+        user_basin = "bay_of_bengal" if lon > 78.5 else "arabian_sea"
+
     red_phrases = [
         "very severe cyclonic storm",
         "extremely severe cyclonic storm",
         "super cyclonic storm",
     ]
     orange_phrases = ["severe cyclonic storm", "cyclonic storm"]
-    yellow_phrases = ["deep depression", "depression"]
+    yellow_phrases = ["deep depression", "depression", "cyclonic circulation", "low pressure area"]
 
     has_red = False
     has_orange = False
     has_yellow = False
+    bulletin_relevant_to_basin = False
 
     for bulletin in active_bulletins:
         name = bulletin.lower()
+
+        # Check if bulletin specifies a particular basin
+        is_bob = any(k in name for k in ["bob", "bay_of_bengal", "bay of bengal", "east_coast", "odisha", "andhra", "tamil_nadu", "bengal"])
+        is_as = any(k in name for k in ["as", "arb", "arabian_sea", "arabian sea", "west_coast", "gujarat", "maharashtra", "goa", "kerala"])
+
+        # If user basin is known and bulletin is explicitly for a different basin, skip it
+        if user_basin == "bay_of_bengal" and is_as and not is_bob:
+            continue
+        if user_basin == "arabian_sea" and is_bob and not is_as:
+            continue
+
+        bulletin_relevant_to_basin = True
+
         if any(phrase in name for phrase in red_phrases):
             has_red = True
         elif any(phrase in name for phrase in orange_phrases):
@@ -336,7 +366,10 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
         elif any(phrase in name for phrase in yellow_phrases):
             has_yellow = True
 
-    # Return based on precedence: Red -> Orange -> Yellow -> Default (Yellow, match failed)
+    if not bulletin_relevant_to_basin:
+        return None, False
+
+    # Return based on precedence: Red -> Orange -> Yellow
     if has_red:
         return "Red", False
     elif has_orange:
@@ -344,9 +377,16 @@ def _check_cyclone_alert() -> tuple[str | None, bool]:
     elif has_yellow:
         return "Yellow", False
     else:
-        # Active bulletin found but none of the strict phrases matched.
-        # Default to Yellow for safety, flag keyword_match_failed as True.
-        return "Yellow", True
+        # If an official emergency warning product (e.g. National Bulletin / Special Bulletin)
+        # is active in the user's basin but specific severity keywords couldn't be parsed
+        has_warning_bulletin = any(
+            any(w in b.lower() for w in ["national_bulletin", "special_tropical", "cyclone_warning", "hourly_bulletin"])
+            for b in active_bulletins
+        )
+        if has_warning_bulletin:
+            return "Yellow", True
+        # Routine daily outlooks (e.g. Tropical Weather Outlook) without storm keywords mean NO active cyclone
+        return None, False
 
 
 # ---------------------------------------------------------------------------
