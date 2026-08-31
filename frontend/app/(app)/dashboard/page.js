@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { Topbar, LocationChip } from "@/components/shell/Topbar";
+import DashboardCharts from "@/components/DashboardCharts";
 import Panel from "@/components/ui/Panel";
 import StatCard from "@/components/ui/StatCard";
 import { Badge, VerdictBadge } from "@/components/ui/Badge";
@@ -160,6 +161,8 @@ export default function DashboardPage() {
             </p>
           )}
         </Panel>
+
+        <DashboardCharts dashboardSnapshot={dashboardSnapshot} />
 
         {weather?.cyclone_alert && (
           <div className={styles.alertBanner}>
