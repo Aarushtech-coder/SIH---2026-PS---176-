@@ -143,9 +143,8 @@ def _compute_verdict(weather: dict, ocean: dict | None = None) -> tuple[str, lis
             )
 
     if not reasons:
-        reasons.append("all parameters within normal range")
-
-    return verdict, reasons
+        if not reasons:
+            reasons.append("all parameters within normal range")
 
 
 def run(state: TurnState) -> TurnState:

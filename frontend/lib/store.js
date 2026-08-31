@@ -142,7 +142,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn, geoLocation],
+    [finishTurn, failTurn, geoLocation, manualLocation],
   );
 
   // Silent map-only query: fetches geospatial data for a given position and
@@ -171,7 +171,7 @@ export function OrcaProvider({ children }) {
         // Silent — map page handles its own error UI
       }
     },
-    [geoLocation],
+    [geoLocation, manualLocation],
   );
 
   // Records->transcribe flow: the user's message bubble starts "pending"
@@ -212,7 +212,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn, geoLocation],
+    [finishTurn, failTurn, geoLocation, manualLocation],
   );
 
   // Silent background fetch for the Dashboard's overview tiles -- unlike
@@ -288,7 +288,7 @@ export function OrcaProvider({ children }) {
         }));
       }
     },
-    [geoLocation],
+    [geoLocation, manualLocation],
   );
 
   const clearSavedQueries = useCallback(

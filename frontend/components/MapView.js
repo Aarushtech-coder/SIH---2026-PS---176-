@@ -80,9 +80,13 @@ export default function MapView({
 }) {
   const { t } = useLocale();
 
-  // Center priority: query response > static layers > live GPS > Chennai default
+  // Center priority: query response > live GPS > static mock layers > Chennai
+  // default. (mapData.center is only set by runMapQuery, which synthesizes
+  // it client-side -- a plain chat query's map_data never carries one, only
+  // current_position. Checking the mock layers' hardcoded Chennai center
+  // before real GPS meant any chat-only session fell back to Chennai.)
   const center =
-    mapData?.center ?? layers?.center ?? gpsCenter ?? DEFAULT_CENTER;
+    mapData?.center ?? mapData?.current_position ?? gpsCenter ?? layers?.center ?? DEFAULT_CENTER;
   const zoom = mapData?.zoom ?? layers?.zoom ?? 9;
 
   // Show a GPS marker only when we have a live position AND the query hasn't
