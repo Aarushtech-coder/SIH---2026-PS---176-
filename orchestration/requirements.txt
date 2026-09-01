@@ -9,12 +9,10 @@ python-multipart
 shapely
 xarray
 netCDF4
+certifi
 openai-whisper
 gTTS
 transformers
 sentencepiece
 torch
 torchaudio
-xarray
-netCDF4
-certifi
