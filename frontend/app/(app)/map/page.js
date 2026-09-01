@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import { fetchBoundary, fetchSafeRoute } from "@/lib/api";
+import { fetchBoundary } from "@/lib/api";
 import { Topbar } from "@/components/shell/Topbar";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
@@ -13,9 +13,11 @@ import styles from "./page.module.css";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
+// hazard-zone toggle removed -- no real backend source exists for it
+// (confirmed: no hazard-zone data anywhere in orchestration/), so it was
+// just a fixed illustrative marker, not real data.
 const LAYER_TOGGLES = [
   { key: "pfz", labelKey: "layer.pfzZones", swatch: "#16a34a" },
-  { key: "hazard", labelKey: "layer.hazardZones", swatch: "#dc2626" },
   { key: "routes", labelKey: "layer.fishingRoutes", swatch: "#2a6fdb" },
   { key: "boundary", labelKey: "layer.boundaries", swatch: "#5b6b83" },
 ];
@@ -70,6 +72,8 @@ function MapExplorerInner() {
     refreshDashboardSnapshot,
     manualLocation,
     setManualLocation,
+    safeRoute,
+    fetchSafeRouteFor,
   } = useOrca();
   const { t } = useLocale();
   const searchParams = useSearchParams();
@@ -77,7 +81,7 @@ function MapExplorerInner() {
 
   // ── Layer visibility ──────────────────────────────────────────────────────
   const [visibility, setVisibility] = useState({
-    pfz: true, hazard: true, routes: true, boundary: true,
+    pfz: true, routes: true, boundary: true,
   });
 
   function toggleLayer(key) {
@@ -91,29 +95,18 @@ useEffect(() => {
     .catch((err) => console.error("Failed to fetch boundary:", err));
 }, []);
 
-  const [safeRouteData, setSafeRouteData] = useState(null);
   const activeLoc = manualLocation || geoLocation;
   const gpsCenter = activeLoc
     ? { lat: activeLoc.latitude, lon: activeLoc.longitude }
     : null;
 
+  // Eagerly fetches the real safe route whenever the location changes -- no
+  // override passed, so it resolves via store.js's own manualLocation >
+  // geoLocation > default chain, the same one Chat uses, instead of only
+  // firing when manualLocation/geoLocation happen to already be set.
   useEffect(() => {
-    if (activeLoc) {
-      fetchSafeRoute({ latitude: activeLoc.latitude, longitude: activeLoc.longitude })
-        .then((data) => {
-          if (data && data.route) {
-            setSafeRouteData([
-              {
-                id: "dynamic-safe-route",
-                label: "Suggested Safe Route to nearest PFZ",
-                points: data.route.map((p) => [p.lat, p.lon]),
-              },
-            ]);
-          }
-        })
-        .catch((err) => console.error("Failed to fetch safe route:", err));
-    }
-  }, [activeLoc]);
+    fetchSafeRouteFor();
+  }, [manualLocation, geoLocation, fetchSafeRouteFor]);
   // ── Map center override (set by search or incoming ?lat/?lon param) ───────
   const [mapCenter, setMapCenter] = useState(null); // {lat, lon} or null
 
@@ -222,7 +215,6 @@ useEffect(() => {
     ...MAP_LAYERS,
     pfzZones: realPfzZones?.length ? realPfzZones : MAP_LAYERS.pfzZones,
     boundary: realBoundary?.length ? realBoundary : MAP_LAYERS.boundary,
-    fishingRoutes: safeRouteData || MAP_LAYERS.fishingRoutes,
     ...(mapCenter ? { center: mapCenter } : {}),
   };
 
@@ -302,6 +294,7 @@ useEffect(() => {
           visibility={visibility}
           interactive
           gpsCenter={gpsCenter}
+          safeRoute={safeRoute}
         />
       </div>
 

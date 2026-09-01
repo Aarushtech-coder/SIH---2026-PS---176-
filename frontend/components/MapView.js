@@ -8,7 +8,6 @@ import {
   Popup,
   Polyline,
   CircleMarker,
-  Circle,
   useMap,
 } from "react-leaflet";
 import L from "leaflet";
@@ -69,6 +68,7 @@ const COLOR = {
  * @param {boolean}     [props.interactive]
  * @param {{lat:number,lon:number}|null} [props.gpsCenter] - Live GPS position (lat/lon).
  * @param {() => void} [props.onPreviewClick] - Called when the non-interactive preview overlay is clicked.
+ * @param {{lat:number,lon:number}[]|null} [props.safeRoute] - Real safe-route points from /safe-route, if fetched.
  */
 export default function MapView({
   mapData,
@@ -77,6 +77,7 @@ export default function MapView({
   interactive = true,
   gpsCenter = null,
   onPreviewClick,
+  safeRoute = null,
 }) {
   const { t } = useLocale();
 
@@ -93,12 +94,13 @@ export default function MapView({
   // already provided a current_position (to avoid double-pinning).
   const showGpsMarker = gpsCenter && !mapData?.current_position;
 
-  // hazardZones/fishingRoutes have no real backend source (orchestration has
-  // no hazard-zone or route data at all) -- they're fixed illustrative
-  // markers sitting near Chennai's coordinates. Once we actually know where
-  // the user is (real GPS or a clicked/queried point), keep showing them
-  // would just mean stale Chennai pins next to the real location. Only show
-  // them as a placeholder before we know any real position.
+  // The mock fishingRoutes layer has no real backend source (orchestration
+  // has no illustrative-route data) -- it's a fixed marker sitting near
+  // Chennai's coordinates. Once we actually know where the user is (real GPS
+  // or a clicked/queried point), keep showing it would just mean a stale
+  // Chennai pin next to the real location. Only show it as a placeholder
+  // before we know any real position. (hazardZones was removed entirely --
+  // there's no real hazard-zone data source anywhere in the backend.)
   const hasRealPosition = Boolean(gpsCenter || mapData?.current_position);
 
   return (
@@ -136,24 +138,6 @@ export default function MapView({
             </CircleMarker>
           ))}
 
-        {visibility.hazard &&
-          !hasRealPosition &&
-          layers?.hazardZones?.map((hz) => (
-            <Circle
-              key={hz.id}
-              center={[hz.lat, hz.lon]}
-              radius={hz.radiusKm * 1000}
-              pathOptions={{
-                color: COLOR.hazard,
-                fillOpacity: 0.12,
-                weight: 2,
-                dashArray: "5 5",
-              }}
-            >
-              <Popup>{hz.label}</Popup>
-            </Circle>
-          ))}
-
         {visibility.routes &&
           !hasRealPosition &&
           layers?.fishingRoutes?.map((r) => (
@@ -170,6 +154,20 @@ export default function MapView({
               <Popup>{r.label}</Popup>
             </Polyline>
           ))}
+
+        {/* Real safe-route-to-nearest-PFZ from /safe-route -- unlike the mock
+            fishingRoutes above, this is always real when present, so it's
+            never gated behind hasRealPosition (it only ever gets fetched
+            once a real position is known in the first place). Solid line
+            distinguishes it from the mock's dashed illustrative one. */}
+        {visibility.routes && safeRoute?.length > 1 && (
+          <Polyline
+            positions={safeRoute.map((p) => [p.lat, p.lon])}
+            pathOptions={{ color: COLOR.route, weight: 3, lineCap: "round" }}
+          >
+            <Popup>{t("map.safeRoute")}</Popup>
+          </Polyline>
+        )}
 
         {visibility.boundary && layers?.boundary && (
           <Polyline
