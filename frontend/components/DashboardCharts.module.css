@@ -1,0 +1,203 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.chartCard {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 0.95rem 1rem;
+  min-width: 0;
+}
+
+.chartTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+}
+
+.emptyNote {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* --- Threshold bars (risk chart) --- */
+
+.thresholdList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.thresholdRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.thresholdHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.76rem;
+}
+
+.thresholdLabel {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.thresholdValue {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.thresholdValue.safe {
+  color: #0a7a0a;
+}
+
+.thresholdValue.caution {
+  color: #8a5a06;
+}
+
+.thresholdValue.unsafe {
+  color: #a92c2c;
+}
+
+.track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: visible;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.fill.safe {
+  background: var(--good);
+}
+
+.fill.caution {
+  background: var(--warning);
+}
+
+.fill.unsafe {
+  background: var(--critical);
+}
+
+.tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--text-secondary);
+  opacity: 0.55;
+}
+
+.tickUnsafe {
+  background: var(--critical);
+  opacity: 0.8;
+}
+
+.thresholdFoot {
+  display: flex;
+  gap: 0.7rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* --- Horizontal bar lists (PFZ distances, sea state) --- */
+
+.barList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.barLabel {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barTrack {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.barValue {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.pfzFill {
+  background: var(--accent);
+}
+
+.waveFill {
+  background: var(--accent);
+}
+
+.swellFill {
+  background: #7c3aed;
+}
+
+/* --- Legend (sea state chart, 2 series) --- */
+
+.legend {
+  display: flex;
+  gap: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.waveDot {
+  background: var(--accent);
+}
+
+.swellDot {
+  background: #7c3aed;
+}

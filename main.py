@@ -12,17 +12,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import base64
 import os
 import tempfile
+import asyncio
 import traceback
 import uuid
+import json
+from shapely.geometry import shape
+from shapely.ops import unary_union
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestration.graph import run_query
-from orchestration.localization_pipeline import SpeechToText
+from orchestration.localization_pipeline import SpeechToText, text_to_speech
 
 # ---------------------------------------------------------------------------
 # App instance
@@ -59,6 +64,11 @@ class QueryRequest(BaseModel):
     # Optional GPS coordinates sent from the frontend device.
     latitude: float | None = None
     longitude: float | None = None
+
+
+class SafeRouteRequest(BaseModel):
+    latitude: float
+    longitude: float
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +110,141 @@ async def health():
     return {"status": "ok", "message": "ORCA orchestration API is running"}
 
 
+# ---------------------------------------------------------------------------
+# Boundary endpoint -- serves India's EEZ/IMBL boundary line for map rendering
+# ---------------------------------------------------------------------------
+BOUNDARY_GEOJSON_PATH = os.path.join(
+    os.path.dirname(__file__), "orchestration", "data", "india_imbl_eez.geojson"
+)
+
+# Cached at process start -- the boundary file doesn't change at runtime.
+_boundary_line_cache: list[list[list[float]]] | None = None
+
+
+def _compute_boundary_line() -> list[list[list[float]]]:
+    """
+    Reads orchestration/data/india_imbl_eez.geojson, merges India's own EEZ
+    features (excluding any stray neighboring-country features the file may
+    contain), simplifies the outline for performant rendering, and returns
+    the largest boundary segments as a list of [lat, lon] polylines --
+    matching the shape react-leaflet's <Polyline positions={...}> expects
+    for a multi-segment line (mainland coast + Andaman & Nicobar are
+    disconnected pieces, so this can't be a single flat line).
+    """
+    with open(BOUNDARY_GEOJSON_PATH) as f:
+        geojson = json.load(f)
+
+    india_features = [
+        f
+        for f in geojson["features"]
+        if f.get("properties", {}).get("SOVEREIGN1") == "India"
+    ]
+    if not india_features:
+        raise ValueError("No India EEZ features found in boundary geojson")
+
+    geometries = [shape(f["geometry"]) for f in india_features]
+    boundary = unary_union(geometries)
+    outline = boundary.boundary
+
+    # 0.02 degrees (~2km) tolerance keeps the coastline shape recognizable
+    # while cutting point count from ~10k down to a browser-friendly size.
+    simplified = outline.simplify(0.02, preserve_topology=True)
+
+    lines = (
+        list(simplified.geoms)
+        if simplified.geom_type == "MultiLineString"
+        else [simplified]
+    )
+
+    # India's EEZ outline includes hundreds of small Andaman & Nicobar
+    # islands as separate tiny rings -- keeping all of them makes the map
+    # unusably slow. Keep only the largest 15 by geographic length: this
+    # covers the mainland coastline, the main Andaman & Nicobar outline,
+    # and the larger individual islands.
+    lines_sorted = sorted(lines, key=lambda l: l.length, reverse=True)
+    top_lines = lines_sorted[:15]
+
+    segments = []
+    for line in top_lines:
+        coords = [[round(y, 4), round(x, 4)] for x, y in line.coords]
+        segments.append(coords)
+
+    return segments
+
+
+@app.get("/boundary", summary="India's EEZ/IMBL boundary line for map rendering")
+def get_boundary():
+    """
+    Returns India's EEZ boundary as a list of [lat, lon] polylines, for
+    direct use as react-leaflet's <Polyline positions={...}> prop.
+
+    Source: Marine Regions World EEZ v12, India-filtered.
+    NOTE: approximate boundary, not for navigation.
+    """
+    global _boundary_line_cache
+    try:
+        if _boundary_line_cache is None:
+            _boundary_line_cache = _compute_boundary_line()
+        return {
+            "boundary": _boundary_line_cache,
+            "source": "MarineRegions-EEZv12-India",
+            "disclaimer": "Approximate boundary, not for navigation.",
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not load boundary data: {e}"
+        )
+
+
+from orchestration.agents.marine_data_agent import (
+    _fetch_pfz_geojson,
+    _transform_feature_to_zone,
+    _build_mock_data,
+)
+from orchestration.agents.geospatial_agent import suggest_safe_route, _haversine_nm
+
+
+@app.post("/safe-route", summary="Get safe route to nearest PFZ")
+def safe_route(req: SafeRouteRequest):
+    try:
+        try:
+            geojson = _fetch_pfz_geojson()
+            features = geojson["features"]
+            zones = [_transform_feature_to_zone(f, i) for i, f in enumerate(features)]
+        except Exception as e:
+            print(f"Failed to fetch real PFZ data, falling back to mock: {e}")
+            zones = _build_mock_data()["pfz_zones"]
+
+        if not zones:
+            raise HTTPException(status_code=404, detail="No PFZ zones found")
+
+        # Find nearest PFZ
+        nearest_zone = None
+        min_dist = float("inf")
+        for z in zones:
+            # Note: _transform_feature_to_zone returns "latitude" and "longitude"
+            dist = _haversine_nm(
+                req.latitude, req.longitude, z["latitude"], z["longitude"]
+            )
+            if dist < min_dist:
+                min_dist = dist
+                nearest_zone = z
+
+        # Calculate safe route
+        route = suggest_safe_route(
+            req.latitude,
+            req.longitude,
+            nearest_zone["latitude"],
+            nearest_zone["longitude"],
+        )
+        return {"route": route, "nearest_pfz": nearest_zone}
+    except Exception as exc:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/query", summary="Run the ORCA pipeline")
 async def query(request: QueryRequest):
     """
@@ -128,8 +273,11 @@ async def query(request: QueryRequest):
 
     try:
         # Pass session_id and user_location — turn_id is auto-generated inside run_query.
-        result = run_query(
-            raw_query=request.text, session_id=session_id, user_location=user_location
+        result = await asyncio.to_thread(
+            run_query,
+            raw_query=request.text,
+            session_id=session_id,
+            user_location=user_location,
         )
     except Exception as exc:
         # Print the full traceback to the server console for hackathon debugging.
@@ -172,7 +320,7 @@ async def voice_query(
 
     try:
         try:
-            _, transcribed_text = _get_stt().transcribe(tmp_path)
+            whisper_lang, transcribed_text = _get_stt().transcribe(tmp_path)
         except Exception as exc:
             traceback.print_exc()
             raise HTTPException(
@@ -200,7 +348,8 @@ async def voice_query(
             user_location = {"lat": latitude, "lon": longitude}
 
         try:
-            result = run_query(
+            result = await asyncio.to_thread(
+                run_query,
                 raw_query=transcribed_text,
                 session_id=session_id,
                 user_location=user_location,
@@ -218,10 +367,27 @@ async def voice_query(
         result_data = (
             result.model_dump() if hasattr(result, "model_dump") else result.dict()
         )
+
+        # Generate TTS audio for the final answer
+        audio_b64 = None
+        if result.final_answer:
+            tts_lang = getattr(result, "language", None) or whisper_lang or "en"
+            out_file = f"response_{uuid.uuid4().hex}.mp3"
+            try:
+                text_to_speech(result.final_answer, tts_lang, out_file)
+                with open(out_file, "rb") as f:
+                    audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+            except Exception as exc:
+                print("Failed to generate TTS:", exc)
+            finally:
+                if os.path.exists(out_file):
+                    os.unlink(out_file)
+
         return {
             **result_data,
             "transcribed_text": transcribed_text,
             "session_id": session_id,
+            "audio_b64": audio_b64,
         }
     finally:
         os.unlink(tmp_path)

@@ -9,6 +9,23 @@
   width: 100%;
 }
 
+.clickable {
+  cursor: crosshair;
+}
+
+.pendingPin {
+  animation: orca-pending-pulse 1s infinite ease-in-out;
+}
+
+@keyframes orca-pending-pulse {
+  0%, 100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 .previewOverlay {
   position: absolute;
   inset: 0;

@@ -209,27 +209,9 @@ export const SCENARIOS = {
   },
 };
 
-// Dashboard-only fixtures (not part of the TurnState contract -- these back
-// the overview tiles / alerts / source strip, not an agent response).
-export const OVERVIEW = {
-  seaCondition: "Moderate",
-  waveHeightRange: "1.6 - 2.2 m",
-  windSpeedKmh: 28,
-  windDirection: "NE",
-  nearestPfzDistanceKm: 28,
-  riskLevel: "caution",
-  lastUpdated: iso(),
-};
-
-export const ALERTS = [
-  {
-    id: "alert-wind",
-    severity: "warning",
-    message: "Strong winds expected in the next 24 hours in your region.",
-    timestamp: iso(-40),
-  },
-];
-
+// Data-source attribution strip on the dashboard -- these are informational
+// labels only (which agencies the pipeline is built to use), not fetched
+// data, so they stay static.
 export const DATA_SOURCES = [
   { id: "incois", label: "INCOIS", desc: "PFZ · Ocean State" },
   { id: "imd", label: "IMD", desc: "Weather · Cyclone" },

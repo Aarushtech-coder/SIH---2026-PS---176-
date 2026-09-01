@@ -70,7 +70,6 @@ async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
     body.latitude = coords.latitude;
     body.longitude = coords.longitude;
   }
-
   const response = await fetch(`${API_BASE_URL}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -84,14 +83,41 @@ async function sendQueryLive(rawQuery, coords, { onTrace, onPlan } = {}) {
   const turnState = await response.json();
   return replayLiveResponse(turnState, { onTrace, onPlan });
 }
-
+export async function fetchBoundary() {
+  const response = await fetch(`${API_BASE_URL}/boundary`);
+  if (!response.ok) {
+    throw new Error(`Boundary fetch failed: ${response.status}`);
+  }
+  const data = await response.json();
+  return data.boundary; // array of [lat, lon] polylines, ready for layers.boundary
+}
+export async function fetchSafeRoute(coords) {
+  if (!coords || coords.latitude == null || coords.longitude == null) {
+    return null;
+  }
+  const response = await fetch(`${API_BASE_URL}/safe-route`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude }),
+  });
+  if (!response.ok) {
+    console.error(`Safe route fetch failed: ${response.status}`);
+    return null;
+  }
+  const data = await response.json();
+  return data; // { route: [...], nearest_pfz: {...} }
+}
 // Uploads a recorded audio clip to the voice endpoint. Contract (see the
 // message to Role 4): POST /voice-query, multipart/form-data with an
 // "audio" field, response is a TurnState JSON plus a top-level
 // transcribed_text field so the UI can show what was heard.
-export async function sendVoiceQuery(audioBlob, { onTrace, onPlan } = {}) {
+export async function sendVoiceQuery(audioBlob, coords, { onTrace, onPlan } = {}) {
   const formData = new FormData();
   formData.append("audio", audioBlob, "query.webm");
+  if (coords && coords.latitude != null && coords.longitude != null) {
+    formData.append("latitude", coords.latitude);
+    formData.append("longitude", coords.longitude);
+  }
 
   const response = await fetch(`${API_BASE_URL}/voice-query`, {
     method: "POST",

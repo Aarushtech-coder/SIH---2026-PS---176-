@@ -26,10 +26,10 @@ Install:
     pip install openai-whisper gTTS transformers sentencepiece torch torchaudio
 """
 
+import torch
 import whisper
 from gtts import gTTS
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-import torch
 
 from orchestration.graph import run_query
 

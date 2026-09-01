@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import styles from "./Sidebar.module.css";
 import LanguageSwitcher from "./LanguageSwitcher";
 import { useLocale } from "@/lib/i18n/LocaleContext";
+import { useLocationLabel } from "@/lib/useLocationLabel";
 import {
   IconLogo,
   IconDashboard,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { t } = useLocale();
+  const { label: locationLabel } = useLocationLabel();
 
   return (
     <nav className={styles.sidebar}>
@@ -58,7 +60,7 @@ export default function Sidebar() {
         <div className={styles.avatar}>F</div>
         <div className={styles.userInfo}>
           <div className={styles.userName}>{t("brand.user")}</div>
-          <div className={styles.userLocation}>Chennai, India</div>
+          <div className={styles.userLocation}>{locationLabel}</div>
         </div>
       </div>
     </nav>

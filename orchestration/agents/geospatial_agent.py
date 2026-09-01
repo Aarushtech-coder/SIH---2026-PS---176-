@@ -8,21 +8,22 @@ Implements the Agent Hand-off Contract (see orchestration/CONTRACTS.md):
 - Appends one TraceEntry to state.trace describing what happened
 """
 
-from datetime import datetime, timezone
-import math
 import json
+import logging
+import math
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
-import logging
-
 logger = logging.getLogger(__name__)
 
 try:
-    from shapely.geometry import Point as _Point, shape as _shape
-    from shapely.ops import nearest_points as _nearest_points, unary_union as _unary_union
+    from shapely.geometry import Point as _Point
+    from shapely.geometry import shape as _shape
+    from shapely.ops import nearest_points as _nearest_points
+    from shapely.ops import unary_union as _unary_union
 
     SHAPELY_AVAILABLE = True
 except ImportError:
@@ -55,22 +56,25 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
     return 2 * R_nm * math.asin(math.sqrt(a))
 
 
+_boundary_cache = None
+
+
 def _load_boundary():
-    """Merges only India's own EEZ features into one boundary -- the file
-    also contains Bangladesh and Myanmar EEZ polygons, which must be
-    excluded so 'inside' correctly means inside India's own waters, not
-    any neighboring country's."""
-    with open(BOUNDARY_GEOJSON_PATH) as f:
-        geojson = json.load(f)
-    india_features = [
-        f
-        for f in geojson["features"]
-        if f.get("properties", {}).get("SOVEREIGN1") == "India"
-    ]
-    if not india_features:
-        raise ValueError("No India EEZ features found in boundary geojson")
-    geometries = [_shape(f["geometry"]) for f in india_features]
-    return _unary_union(geometries)
+    """Merges ALL India features into one boundary, cached after the first
+    call -- this data never changes at runtime, so re-reading the file and
+    re-running unary_union on every single request is wasted work."""
+    global _boundary_cache
+    if _boundary_cache is None:
+        with open(BOUNDARY_GEOJSON_PATH) as f:
+            geojson = json.load(f)
+        india_features = [
+            f
+            for f in geojson["features"]
+            if f.get("properties", {}).get("SOVEREIGN1") == "India"
+        ]
+        geometries = [_shape(f["geometry"]) for f in india_features]
+        _boundary_cache = _unary_union(geometries)
+    return _boundary_cache
 
 
 def _classify_zone(distance_nm: float, inside: bool) -> str:
@@ -211,8 +215,9 @@ def distance_to_imbl(lat, lon):
     """Calculate distance in nautical miles from any point to the IMBL."""
     try:
         boundary = _load_boundary()
+        boundary_outline = boundary.boundary
         point = _Point(lon, lat)
-        nearest_on_boundary, _ = _nearest_points(boundary, point)
+        nearest_on_boundary, _ = _nearest_points(boundary_outline, point)
         return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
     except Exception:
-        return 999.0  # Fallback: treat as far away rather than crash
+        return 999.0

@@ -11,10 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import orchestration.session_store as store
-from orchestration import planner, session_store
+from orchestration import planner
 from orchestration.graph import run_query
 from orchestration.state import TurnState
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -176,11 +176,27 @@ def run(state: TurnState) -> TurnState:
         sections, citations = _summarize_outputs(state)
 
         # Disclaimer logic (same in both LLM and fallback paths).
+        # Disclaimer logic (same in both LLM and fallback paths).
         if state.intent in {"safe_to_sail", "geofence_check"}:
-            disclaimer = (
-                "Safety note: this mock response is not a substitute for official "
-                "IMD, INCOIS, coast guard, or local maritime advisories."
+            any_mock = any(
+                output.source == "MOCK"
+                for output in state.agent_outputs.values()
+                if output is not None
             )
+            if any_mock:
+                disclaimer = (
+                    "Safety note: some of this response uses mock/placeholder data "
+                    "and is not a substitute for official IMD, INCOIS, coast guard, "
+                    "or local maritime advisories."
+                )
+            else:
+                disclaimer = (
+                    "Safety note: this is a decision-support tool based on live IMD/"
+                    "INCOIS data sources, not an autonomous safety authority. It does "
+                    "not replace official advisories — please verify with INCOIS "
+                    "(incois.gov.in) or your local Coast Guard/Fisheries office before "
+                    "departure."
+                )
         else:
             disclaimer = None
 
@@ -214,6 +230,9 @@ def run(state: TurnState) -> TurnState:
                             "If any agent's source is 'MOCK', explicitly and naturally mention within the sentence "
                             "that this is placeholder or mock data, not live yet — never silently present mock data as real. "
                             "Keep the answer to 2-4 sentences. Do not invent numbers beyond what is given. "
+                            "IMBL stands for International Maritime Boundary Line (the line separating "
+                            "India's EEZ from a neighboring country's waters) — never expand it as anything "
+                            "else, such as 'Marine Biodiversity Loss'. "
                             f"Write your response in the language with ISO code '{state.language}'. "
                             "If it is 'en', respond in English."
                         ),
@@ -230,11 +249,6 @@ def run(state: TurnState) -> TurnState:
             used_llm = True
         except Exception:  # noqa: BLE001
             # --- Template fallback ---
-            if sections:
-                details = "; ".join(sections)
-            else:
-                details = "no specialist mock outputs were available"
-
             intent_intro = {
                 "nearest_pfz": "For the nearest fishing zone request",
                 "safe_to_sail": "For the safe-to-sail request",
@@ -246,8 +260,8 @@ def run(state: TurnState) -> TurnState:
                 f" [language: {state.language}]" if state.language != "en" else ""
             )
             state.final_answer = (
-                f"{intent_intro}, this placeholder response uses mock data only: "
-                f"{details}.{lang_note}"
+                f"{intent_intro}, please refer to the map or charts provided "
+                f"for the requested data.{lang_note}"
             )
 
         state.citations = citations
