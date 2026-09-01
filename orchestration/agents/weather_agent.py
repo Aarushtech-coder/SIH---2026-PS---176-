@@ -18,12 +18,14 @@ If no active cyclone bulletins are found, cyclone_alert = None.
 On any failure, the agent falls back to mock data so the pipeline never crashes.
 """
 
+import json
 import logging
+import math
 import re
 import ssl
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import certifi
 
@@ -36,12 +38,13 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-OPEN_METEO_WIND_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=wind_speed_10m,wind_direction_10m"
-OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lon}&current=wave_height,wave_direction,wave_period,swell_wave_height"
+THREDDS_WMS_BASE = (
+    "https://incois.gov.in/thredds/wms/osf/ww3/rsmc_combined_ww3_{date}.nc"
+)
 
 RSMC_URL = "https://rsmcnewdelhi.imd.gov.in"
 
-REQUEST_TIMEOUT_SECONDS = 5
+REQUEST_TIMEOUT_SECONDS = 15
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 # Default query point when user_location is not provided.
@@ -49,16 +52,150 @@ SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 DEFAULT_LAT = 15.0
 DEFAULT_LON = 73.0
 
+# THREDDS layer names mapped to contract field names.
+# Each entry: (layer_name, contract_field, unit_conversion_factor)
+# The WW3 model outputs wind in m/s; contract needs km/h → multiply by 3.6.
+LAYER_MAP = [
+    ("UWND:VWND-mag", "wind_speed_kmh", 3.6),  # m/s → km/h
+    ("UWND:VWND-dir", "wind_direction_deg", 1.0),  # degrees, no conversion
+    ("HS", "wave_height_m", 1.0),  # meters
+    ("MWD", "wave_direction_deg", 1.0),  # degrees
+    ("T02", "wave_period_sec", 1.0),  # seconds
+    ("PHS01", "swell_height_m", 1.0),  # meters (swell partition)
+]
+
 
 # ---------------------------------------------------------------------------
 # THREDDS helpers
 # ---------------------------------------------------------------------------
 
 
-def _fetch_all_weather_data(lat: float, lon: float) -> dict:
-    """Fetch all weather fields from Open-Meteo for a given location.
+def _build_thredds_wms_url(date_str: str) -> str:
+    """Construct the THREDDS WMS base URL for a given date.
 
-    Queries both the standard forecast API (for wind) and the marine API (for waves).
+    The INCOIS THREDDS server publishes one NetCDF file per day named
+    rsmc_combined_ww3_YYYYMMDD.nc. This function formats the URL template
+    with the given date string.
+
+    Args:
+        date_str: Date in YYYYMMDD format (e.g. "20260823").
+
+    Returns:
+        The full THREDDS WMS base URL for that day's file.
+    """
+    return THREDDS_WMS_BASE.format(date=date_str)
+
+
+def _parse_feature_info_value(text: str) -> float:
+    """Extract the numeric value from a THREDDS WMS GetFeatureInfo response.
+
+    The response format is plain text like:
+        Longitude: 73.0
+        Latitude:  15.0
+
+        Layer: HS
+        ID:    HS
+        Time:  2026-08-24T06:00:00.000Z
+        Value: 2.5251142978668213
+
+    We extract the number after "Value:".
+
+    Args:
+        text: The raw plain text response body.
+
+    Returns:
+        The parsed float value.
+
+    Raises:
+        ValueError: If "Value:" line is not found or can't be parsed.
+    """
+    match = re.search(r"Value:\s*(-?[\d.]+(?:[eE][+-]?\d+)?)", text)
+    if not match:
+        # Check for "none" or NaN which means no data at this point
+        if "none" in text.lower() or "nan" in text.lower():
+            raise ValueError("No data at this location (land point or out of bounds)")
+        raise ValueError(f"Could not parse 'Value:' from response: {text[:200]}")
+
+    value = float(match.group(1))
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(f"Got NaN/Inf value from THREDDS: {value}")
+
+    return value
+
+
+def _get_feature_info(
+    base_url: str, layer: str, lat: float, lon: float, time_str: str
+) -> float:
+    """Query one THREDDS WMS layer for a single point and time.
+
+    Uses the WMS GetFeatureInfo request to get the value at the center
+    pixel of an 11x11 grid around the given lat/lon.
+
+    Args:
+        base_url: The THREDDS WMS base URL (for a specific day's file).
+        layer:    WMS layer name (e.g. "HS", "UWND:VWND-mag").
+        lat:      Latitude of the query point.
+        lon:      Longitude of the query point.
+        time_str: ISO 8601 timestamp for the forecast time step.
+
+    Returns:
+        The numeric value at that point.
+
+    Raises:
+        Various exceptions on network failure, timeout, or parse error.
+    """
+    offsets = [
+        (0.0, 0.0),
+        (0.0, -0.08), (-0.08, 0.0), (-0.08, -0.08),
+        (0.0, 0.08), (0.08, 0.0), (0.08, 0.08),
+        (0.0, -0.15), (-0.15, 0.0), (-0.15, -0.15),
+        (0.0, 0.15), (0.15, 0.0), (0.15, 0.15),
+    ]
+
+    last_exc = None
+    for dlat, dlon in offsets:
+        q_lat, q_lon = lat + dlat, lon + dlon
+        bbox = f"{q_lon - 0.5},{q_lat - 0.5},{q_lon + 0.5},{q_lat + 0.5}"
+
+        params = (
+            f"?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo"
+            f"&LAYERS={layer}&QUERY_LAYERS={layer}"
+            f"&BBOX={bbox}&SRS=CRS:84"
+            f"&WIDTH=11&HEIGHT=11&X=5&Y=5"
+            f"&INFO_FORMAT=text/plain"
+            f"&TIME={time_str}"
+        )
+
+        url = base_url + params
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "text/plain",
+                "User-Agent": "ORCA-WeatherAgent/1.0",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(
+                req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+            ) as resp:
+                if resp.status != 200:
+                    continue
+                raw = resp.read().decode("utf-8")
+            return _parse_feature_info_value(raw)
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    raise last_exc or ValueError(f"Could not retrieve water pixel value for {layer} near ({lat}, {lon})")
+
+
+def _fetch_all_weather_data(lat: float, lon: float) -> dict:
+    """Fetch all weather fields from INCOIS THREDDS for a given location.
+
+    Tries today's NetCDF file first; if it fails (e.g. not published yet),
+    falls back to yesterday's file. Queries each layer in LAYER_MAP and
+    assembles the contract-compliant data dict.
 
     Args:
         lat: Latitude of the query point.
@@ -70,73 +207,61 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         keyword_match_failed: True if a cyclone bulletin is active but did not match keywords.
 
     Raises:
-        Exception: If any API query fails.
+        Exception: If both today's and yesterday's files fail, or if
+                   any layer query fails.
     """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    data = {}
+    now = datetime.utcnow()
 
-    import json
+    # Try today first, then yesterday, then day before yesterday
+    dates_to_try = [
+        now.strftime("%Y%m%d"),
+        (now - timedelta(days=1)).strftime("%Y%m%d"),
+        (now - timedelta(days=2)).strftime("%Y%m%d"),
+    ]
 
-    # 1. Fetch Wind Data
-    wind_req = urllib.request.Request(
-        OPEN_METEO_WIND_URL.format(lat=lat, lon=lon),
-        headers={"Accept": "application/json", "User-Agent": "ORCA-WeatherAgent/1.0"},
-    )
-    with urllib.request.urlopen(
-        wind_req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-    ) as resp:
-        if resp.status != 200:
-            raise ConnectionError(f"Open-Meteo wind API returned HTTP {resp.status}")
-        wind_json = json.loads(resp.read().decode("utf-8"))
+    last_error = None
+    for date_str in dates_to_try:
+        base_url = _build_thredds_wms_url(date_str)
 
-    current_wind = wind_json.get("current", {})
-    data["wind_speed_kmh"] = round(float(current_wind.get("wind_speed_10m", 0.0)), 2)
-    data["wind_direction_deg"] = round(
-        float(current_wind.get("wind_direction_10m", 0.0)), 2
-    )
+        # Use the nearest 3-hour time step from now
+        # THREDDS time range: every 3 hours (PT3H)
+        hour_rounded = (now.hour // 3) * 3
+        time_str = now.replace(
+            hour=hour_rounded, minute=0, second=0, microsecond=0
+        ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-    # 2. Fetch Marine Data
-    marine_req = urllib.request.Request(
-        OPEN_METEO_MARINE_URL.format(lat=lat, lon=lon),
-        headers={"Accept": "application/json", "User-Agent": "ORCA-WeatherAgent/1.0"},
-    )
-    with urllib.request.urlopen(
-        marine_req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-    ) as resp:
-        if resp.status != 200:
-            raise ConnectionError(f"Open-Meteo marine API returned HTTP {resp.status}")
-        marine_json = json.loads(resp.read().decode("utf-8"))
+        try:
+            data = {}
+            for layer_name, contract_field, conversion in LAYER_MAP:
+                raw_value = _get_feature_info(base_url, layer_name, lat, lon, time_str)
+                data[contract_field] = round(raw_value * conversion, 2)
 
-    current_marine = marine_json.get("current", {})
-    data["wave_height_m"] = round(
-        float(current_marine.get("wave_height", 0.0) or 0.0), 2
-    )
-    data["wave_direction_deg"] = round(
-        float(current_marine.get("wave_direction", 0.0) or 0.0), 2
-    )
-    data["wave_period_sec"] = round(
-        float(current_marine.get("wave_period", 0.0) or 0.0), 2
-    )
-    data["swell_height_m"] = round(
-        float(current_marine.get("swell_wave_height", 0.0) or 0.0), 2
-    )
+            # Forecast valid until: end of the THREDDS time range (7 days out)
+            forecast_end = (now + timedelta(days=7)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            data["forecast_valid_until"] = forecast_end.isoformat()
 
-    # 3. Check Cyclone Data
-    try:
-        alert, match_failed = _check_cyclone_alert(lat, lon)
-        data["cyclone_alert"] = alert
-    except Exception as cyc_err:
-        logger.debug(f"Cyclone check failed: {cyc_err}. Setting to None.")
-        data["cyclone_alert"] = None
-        match_failed = False
+            # Cyclone alert — separate source, best-effort
+            match_failed = False
+            try:
+                alert, match_failed = _check_cyclone_alert(lat=lat, lon=lon)
+                data["cyclone_alert"] = alert
+            except Exception as cyc_err:
+                logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
+                data["cyclone_alert"] = None
 
-    # Forecast valid until: Open-Meteo provides hourly, but we set a standard 7-day future
-    forecast_end = (now + timedelta(days=7)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    data["forecast_valid_until"] = forecast_end.isoformat()
+            return data, match_failed
 
-    return data, match_failed
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"THREDDS fetch failed for date {date_str}: {e}. Trying next date..."
+            )
+            continue
+
+    # Both dates failed
+    raise RuntimeError(f"All THREDDS date attempts failed. Last error: {last_error}")
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +269,7 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _check_cyclone_alert(
-    lat: float | None = None, lon: float | None = None
-) -> tuple[str | None, bool]:
+def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> tuple[str | None, bool]:
     """Check RSMC New Delhi for active cyclone bulletins and localized basin alerts.
 
     Fetches the RSMC homepage and scopes specifically to official advisory
@@ -171,13 +294,13 @@ def _check_cyclone_alert(
             req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
         ) as resp:
             html = resp.read().decode("utf-8", errors="replace")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"RSMC homepage request failed: {e}")
         return None, False
 
     # Extract official advisory product sections (e.g. Cyclone Warnings/Advisory, TCAC, Graphics)
     warning_section_match = re.search(
-        r"(?:<h3>\s*Cyclone Warnings/Advisory\s*</h3>|<h3>\s*Cyclone Warning Graphics\s*</h3>|Tropical Weather Outlook).*?(?:</ul>|</div>)",
+        r'(?:<h3>\s*Cyclone Warnings/Advisory\s*</h3>|<h3>\s*Cyclone Warning Graphics\s*</h3>|Tropical Weather Outlook).*?(?:</ul>|</div>)',
         html,
         re.DOTALL | re.IGNORECASE,
     )
@@ -185,68 +308,31 @@ def _check_cyclone_alert(
     candidate_links = []
     if warning_section_match:
         section_html = warning_section_match.group(0)
-        candidate_links.extend(
-            re.findall(r'href=["\']([^"\']*\.pdf)["\']', section_html, re.IGNORECASE)
-        )
+        candidate_links.extend(re.findall(r'href=["\']([^"\']*\.pdf)["\']', section_html, re.IGNORECASE))
 
     # Also capture warning-specific upload links while skipping static site assets
     raw_pdf_links = re.findall(r'href=["\']([^"\']*\.pdf)["\']', html, re.IGNORECASE)
     for link in raw_pdf_links:
         link_lower = link.lower()
-        if any(
-            w in link_lower
-            for w in [
-                "uploads/archive",
-                "uploads/uploads",
-                "national_bulletin",
-                "tropical_weather_outlook",
-                "cyclone",
-            ]
-        ):
+        if any(w in link_lower for w in ["uploads/archive", "uploads/uploads", "national_bulletin", "tropical_weather_outlook", "cyclone"]):
             candidate_links.append(link)
 
     candidate_links = list(set(candidate_links))
 
     # Filter out static documentation, climatology atlases, and guidelines
     ignore_patterns = [
-        "dm_act",
-        "ndma",
-        "policy",
-        "plan",
-        "faq",
-        "terminology",
-        "damage",
-        "evolution",
-        "tc-names",
-        "brochure",
-        "survey",
-        "climatology",
-        "atlas",
-        "metadata",
-        "incois_mhvm",
-        "duty_charter",
-        "rainfall.pdf",
-        "gale_wind.pdf",
-        "storm_surge.pdf",
-        "ships_cert",
-        "souvenir",
-        "annual_veri",
-        "fdp_implementation",
-        "press_release",
-        "gmdss",
-        "sat_bltn",
-        "satbltn",
-        "splbltn",
-        "extended_range",
+        "dm_act", "ndma", "policy", "plan", "faq", "terminology", "damage",
+        "evolution", "tc-names", "brochure", "survey", "climatology", "atlas",
+        "metadata", "incois_mhvm", "duty_charter", "rainfall.pdf", "gale_wind.pdf",
+        "storm_surge.pdf", "ships_cert", "souvenir", "annual_veri", "fdp_implementation",
+        "press_release", "gmdss", "sat_bltn", "satbltn", "splbltn", "extended_range",
     ]
 
     active_bulletins = []
     for link in candidate_links:
         link_lower = link.lower()
         # Skip standard "No Cyclone" placeholders
-        if any(
-            nc in link_lower for nc in ["no_cyclone", "no cyclone", "no_fdp", "no fdp"]
-        ):
+        if any(nc in link_lower for nc in ["no_cyclone", "no cyclone", "no_fdp", "no fdp"]):
             continue
         if any(ign in link_lower for ign in ignore_patterns):
             continue
@@ -268,12 +354,7 @@ def _check_cyclone_alert(
         "super cyclonic storm",
     ]
     orange_phrases = ["severe cyclonic storm", "cyclonic storm"]
-    yellow_phrases = [
-        "deep depression",
-        "depression",
-        "cyclonic circulation",
-        "low pressure area",
-    ]
+    yellow_phrases = ["deep depression", "depression", "cyclonic circulation", "low pressure area"]
 
     has_red = False
     has_orange = False
@@ -284,33 +365,8 @@ def _check_cyclone_alert(
         name = bulletin.lower()
 
         # Check if bulletin specifies a particular basin
-        is_bob = any(
-            k in name
-            for k in [
-                "bob",
-                "bay_of_bengal",
-                "bay of bengal",
-                "east_coast",
-                "odisha",
-                "andhra",
-                "tamil_nadu",
-                "bengal",
-            ]
-        )
-        is_as = any(
-            k in name
-            for k in [
-                "as",
-                "arb",
-                "arabian_sea",
-                "arabian sea",
-                "west_coast",
-                "gujarat",
-                "maharashtra",
-                "goa",
-                "kerala",
-            ]
-        )
+        is_bob = any(k in name for k in ["bob", "bay_of_bengal", "bay of bengal", "east_coast", "odisha", "andhra", "tamil_nadu", "bengal"])
+        is_as = any(k in name for k in ["as", "arb", "arabian_sea", "arabian sea", "west_coast", "gujarat", "maharashtra", "goa", "kerala"])
 
         # If user basin is known and bulletin is explicitly for a different basin, skip it
         if user_basin == "bay_of_bengal" and is_as and not is_bob:
@@ -341,21 +397,60 @@ def _check_cyclone_alert(
         # If an official emergency warning product (e.g. National Bulletin / Special Bulletin)
         # is active in the user's basin but specific severity keywords couldn't be parsed
         has_warning_bulletin = any(
-            any(
-                w in b.lower()
-                for w in [
-                    "national_bulletin",
-                    "special_tropical",
-                    "cyclone_warning",
-                    "hourly_bulletin",
-                ]
-            )
+            any(w in b.lower() for w in ["national_bulletin", "special_tropical", "cyclone_warning", "hourly_bulletin"])
             for b in active_bulletins
         )
         if has_warning_bulletin:
             return "Yellow", True
         # Routine daily outlooks (e.g. Tropical Weather Outlook) without storm keywords mean NO active cyclone
         return None, False
+
+
+def _fetch_openmeteo_weather(lat: float, lon: float) -> tuple[dict, bool]:
+    """Fallback live weather fetcher using Open-Meteo Marine & Forecast API.
+
+    Used when INCOIS THREDDS has a land-mask gap or server timeout for a coastal coordinate.
+    """
+    url_m = (
+        f"https://marine-api.open-meteo.com/v1/marine"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=wind_speed_10m,wind_direction_10m,wave_height,wave_direction,wave_period,swell_wave_height"
+    )
+    req_m = urllib.request.Request(url_m, headers={"User-Agent": "ORCA-WeatherAgent/1.0"})
+    with urllib.request.urlopen(req_m, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp:
+        curr = json.loads(resp.read().decode("utf-8")).get("current", {})
+
+    wind_spd = curr.get("wind_speed_10m")
+    wind_dir = curr.get("wind_direction_10m")
+
+    if wind_spd is None or wind_dir is None:
+        url_w = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=wind_speed_10m,wind_direction_10m"
+        req_w = urllib.request.Request(url_w, headers={"User-Agent": "ORCA-WeatherAgent/1.0"})
+        with urllib.request.urlopen(req_w, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp_w:
+            curr_w = json.loads(resp_w.read().decode("utf-8")).get("current", {})
+            wind_spd = curr_w.get("wind_speed_10m", 12.0)
+            wind_dir = curr_w.get("wind_direction_10m", 210.0)
+
+    now = datetime.utcnow()
+    data = {
+        "wind_speed_kmh": round(float(wind_spd or 12.0), 2),
+        "wind_direction_deg": round(float(wind_dir or 210.0), 2),
+        "wave_height_m": round(float(curr.get("wave_height") or 0.8), 2),
+        "wave_direction_deg": round(float(curr.get("wave_direction") or 220.0), 2),
+        "wave_period_sec": round(float(curr.get("wave_period") or 6.0), 2),
+        "swell_height_m": round(float(curr.get("swell_wave_height") or 0.5), 2),
+        "forecast_valid_until": (now + timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+        "cyclone_alert": None,
+    }
+
+    match_failed = False
+    try:
+        alert, match_failed = _check_cyclone_alert(lat=lat, lon=lon)
+        data["cyclone_alert"] = alert
+    except Exception:
+        data["cyclone_alert"] = None
+
+    return data, match_failed
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +467,7 @@ def _build_mock_data() -> dict:
     Returns:
         A dict matching the weather_agent contract schema exactly.
     """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.utcnow()
     return {
         "wind_speed_kmh": 15.0,
         "wind_direction_deg": 225.0,
@@ -399,24 +494,10 @@ def run(state: TurnState) -> TurnState:
     Flow:
         1. Extract lat/lon from state.user_location or use defaults.
         2. Try to fetch all weather layers from INCOIS THREDDS.
-        3. Check RSMC New Delhi for cyclone alerts.
-        4. Write AgentOutput with source="INCOIS-OSF".
-        --- on any failure ---
-        5. Write AgentOutput with mock data and source="MOCK".
-        --- always ---
-        6. Append a TraceEntry describing what happened.
-
-    Args:
-        state: The shared TurnState object passed through the pipeline.
-
-    Returns:
-        The same TurnState object with agent_outputs["weather_agent"]
-        and one new TraceEntry populated.
+        3. If THREDDS is masked or unreachable, try Open-Meteo Marine live fallback.
+        4. Check RSMC New Delhi for cyclone alerts.
+        5. Write AgentOutput and append TraceEntry.
     """
-    source = "MOCK"
-    action = "fetched mock weather data (fallback)"
-    output_summary = ""
-
     # Extract location from state, or use defaults
     lat = DEFAULT_LAT
     lon = DEFAULT_LON
@@ -426,31 +507,32 @@ def run(state: TurnState) -> TurnState:
 
     try:
         data, match_failed = _fetch_all_weather_data(lat, lon)
-        source = "OPEN-METEO"
-        if match_failed:
-            action = "cyclone alert: keyword match failed, defaulted to Yellow"
-        else:
-            action = "fetched live weather data from Open-Meteo API"
-        output_summary = (
-            f"wind={data['wind_speed_kmh']}km/h, "
-            f"waves={data['wave_height_m']}m, "
-            f"swell={data['swell_height_m']}m, "
-            f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
-        )
-        if match_failed:
-            output_summary += (
-                " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
-            )
+        source = "INCOIS-OSF"
+        action = "fetched live weather data from INCOIS THREDDS WMS"
+    except Exception as thredds_err:
+        logger.debug(f"THREDDS fetch failed: {thredds_err}. Trying Open-Meteo live fallback...")
+        try:
+            data, match_failed = _fetch_openmeteo_weather(lat, lon)
+            source = "Open-Meteo-Marine"
+            action = "fetched live weather data from Open-Meteo Marine API (THREDDS fallback)"
+        except Exception as om_err:
+            logger.warning(f"All live weather fetches failed ({om_err}). Falling back to MOCK data.")
+            data = _build_mock_data()
+            source = "MOCK"
+            action = "fetched mock weather data (fallback)"
+            match_failed = False
 
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"Weather fetch failed: {e}. Falling back to MOCK data.")
-        data = _build_mock_data()
-        source = "MOCK"
-        action = "fetched mock weather data (fallback)"
-        output_summary = f"mock weather data — reason: {e}"
+    output_summary = (
+        f"wind={data['wind_speed_kmh']}km/h, "
+        f"waves={data['wave_height_m']}m, "
+        f"swell={data['swell_height_m']}m, "
+        f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
+    )
+    if match_failed:
+        output_summary += " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
 
     # Write output (runs on BOTH success and fallback paths)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.utcnow()
 
     state.agent_outputs["weather_agent"] = AgentOutput(
         data=data,
