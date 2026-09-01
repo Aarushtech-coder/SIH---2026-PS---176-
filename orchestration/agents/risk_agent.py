@@ -32,13 +32,11 @@ from orchestration.state import AgentOutput, TraceEntry, TurnState
 # (source: mausam.imd.gov.in Tamil Nadu bulletin, AzheekalJetty example).
 # Re-verify against the live bulletin closest to your demo date — these
 # bands shift bulletin-to-bulletin and region-to-region.
-MAX_SAFE_WIND_SPEED_KMH = 20.0  # below official squally band: caution begins
-UNSAFE_WIND_SPEED_KMH = 35.0  # IMD "do not venture" band starts here
-UNSAFE_WIND_GUST_KMH = 55.0  # matches the gust figure in the same bulletins
-MAX_SAFE_WAVE_HEIGHT_M = 1.0  # swell/vigilance advisory band starts here
-UNSAFE_WAVE_HEIGHT_M = (
-    2.5  # below INCOIS's observed 2.8-3.3m High Wave Alert band, conservative
-)
+MAX_SAFE_WIND_SPEED_KMH = 20.0     # below official squally band: caution begins
+UNSAFE_WIND_SPEED_KMH = 35.0       # IMD "do not venture" band starts here
+UNSAFE_WIND_GUST_KMH = 55.0        # matches the gust figure in the same bulletins
+MAX_SAFE_WAVE_HEIGHT_M = 1.0       # swell/vigilance advisory band starts here
+UNSAFE_WAVE_HEIGHT_M = 2.5         # below INCOIS's observed 2.8-3.3m High Wave Alert band, conservative
 
 DISCLAIMER = (
     "This advisory is generated from published IMD/INCOIS thresholds and is "
@@ -49,7 +47,7 @@ DISCLAIMER = (
 )
 
 
-def _compute_verdict(weather: dict, ocean: dict | None = None) -> tuple[str, list[str]]:
+def _compute_verdict(weather: dict) -> tuple[str, list[str]]:
     """
     Returns (verdict, reasons). Cyclone alerts and active swell surges are
     hard overrides — they force 'unsafe' regardless of the numeric
@@ -130,21 +128,11 @@ def _compute_verdict(weather: dict, ocean: dict | None = None) -> tuple[str, lis
             f"swell height {swell_height}m exceeds {MAX_SAFE_WAVE_HEIGHT_M}m "
             f"caution threshold"
         )
-    # SST is informational only -- there is no published IMD/INCOIS safety
-    # threshold tying sea surface temperature directly to a sail/no-sail
-    # verdict, so this never escalates the verdict on its own. It's
-    # included so the reasoning trace shows judges the agent actually
-    # consumed ocean_analytics_agent's output, not just weather_agent's.
-    if ocean:
-        sst = ocean.get("sst_celsius")
-        if sst is not None:
-            reasons.append(
-                f"sea surface temperature {sst}\u00b0C (informational, not used in verdict)"
-            )
 
     if not reasons:
-        if not reasons:
-            reasons.append("all parameters within normal range")
+        reasons.append("all parameters within normal range")
+
+    return verdict, reasons
 
 
 def run(state: TurnState) -> TurnState:
@@ -152,10 +140,7 @@ def run(state: TurnState) -> TurnState:
         weather_output = state.agent_outputs.get("weather_agent")
         weather = weather_output.data if weather_output else {}
 
-        ocean_output = state.agent_outputs.get("ocean_analytics_agent")
-        ocean = ocean_output.data if ocean_output else {}
-
-        verdict, reasons = _compute_verdict(weather, ocean)
+        verdict, reasons = _compute_verdict(weather)
 
         data = {
             "verdict": verdict,
@@ -167,11 +152,7 @@ def run(state: TurnState) -> TurnState:
                 "unsafe_wind_gust_kmh": UNSAFE_WIND_GUST_KMH,
             },
         }
-        source = (
-            "IMD/INCOIS-thresholds"
-            if weather_output and weather_output.source != "MOCK"
-            else "MOCK"
-        )
+        source = "IMD/INCOIS-thresholds" if weather_output and weather_output.source != "MOCK" else "MOCK"
         output_summary = f"verdict={verdict}"
     except Exception as exc:
         # Resilience rule (CONTRACTS.md): never raise.
