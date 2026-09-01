@@ -7,7 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { sendQuery, sendVoiceQuery } from "./api";
+import { sendQuery, sendVoiceQuery, fetchSafeRoute } from "./api";
 // Monotonic-ish unique ID generator. Date.now() alone can collide when two
 // messages are created within the same millisecond (e.g. rapid voice+text
 // submissions), which breaks React's key-based reconciliation. Appending a
@@ -28,6 +28,12 @@ const OrcaContext = createContext(null);
 // (LocationChip, MAP_LAYERS). The dashboard flags in its UI when this
 // fallback is in use rather than presenting it as the user's real position.
 const DEFAULT_LOCATION = { latitude: 13.0827, longitude: 80.2707 };
+
+// Simple keyword match for "this question is about a route/safe path" --
+// there's no backend intent for this yet (see the comment in runQuery), so
+// this is a client-side heuristic, English-only for now, same limitation
+// mockData.js's own classifyIntent() already has.
+const ROUTE_QUERY_PATTERN = /\broute\b|\bsafe path\b|\bnavigat/i;
 
 function extractVerdict(turnState) {
   return turnState.agent_outputs?.risk_agent?.data?.verdict ?? null;
@@ -59,6 +65,11 @@ export function OrcaProvider({ children }) {
   });
 
   const [manualLocation, setManualLocation] = useState(null);
+  // Real safe-route-to-nearest-PFZ points from /safe-route, shared by Map
+  // Explorer (fetches eagerly on location change) and Chat (fetches only
+  // when a question actually looks route-related) so both show the same
+  // route and only make the call once, not once per consumer.
+  const [safeRoute, setSafeRoute] = useState(null);
 
   // GPS — single read per session; exposed so any component can consume it.
   const {
@@ -70,6 +81,25 @@ export function OrcaProvider({ children }) {
   const geoLocation = useMemo(
     () => (geoStatus === "granted" ? { latitude, longitude } : null),
     [geoStatus, latitude, longitude],
+  );
+
+  // coordsOverride is optional -- when omitted this resolves the location the
+  // exact same way every other feature in the app does (manualLocation >
+  // geoLocation > Chennai default). Map Explorer's eager fetch used to skip
+  // straight to Chennai when nothing was set instead of using this same
+  // chain, so it and Chat could end up showing routes for two different
+  // "current" locations. Resolving here, once, keeps every caller consistent.
+  const fetchSafeRouteFor = useCallback(
+    async (coordsOverride) => {
+      const coords = coordsOverride || manualLocation || geoLocation || DEFAULT_LOCATION;
+      try {
+        const data = await fetchSafeRoute({ latitude: coords.latitude, longitude: coords.longitude });
+        if (data?.route?.length > 1) setSafeRoute(data.route);
+      } catch {
+        // Silent -- the route is a supplementary visual, not the main answer.
+      }
+    },
+    [manualLocation, geoLocation],
   );
 
   const finishTurn = useCallback(
@@ -122,6 +152,13 @@ export function OrcaProvider({ children }) {
       // fall back to this same default; Chat should too.
       const coords = coordsOverride || manualLocation || geoLocation || DEFAULT_LOCATION;
 
+      // The backend's planner has no "route" intent -- /safe-route is a
+      // separate endpoint entirely, not part of the conversational pipeline.
+      // So a route question still gets whatever generic answer the LLM
+      // gives it, but this also fetches the real route data in parallel so
+      // it shows up on the map (Chat's preview card and Map Explorer).
+      if (ROUTE_QUERY_PATTERN.test(query)) fetchSafeRouteFor(coords);
+
       setMessages((prev) => [
         ...prev,
         { id: uniqueId("u"), role: "user", text: query },
@@ -142,7 +179,7 @@ export function OrcaProvider({ children }) {
         setLoading(false);
       }
     },
-    [finishTurn, failTurn, geoLocation, manualLocation],
+    [finishTurn, failTurn, geoLocation, manualLocation, fetchSafeRouteFor],
   );
 
   // Silent map-only query: fetches geospatial data for a given position and
@@ -321,6 +358,8 @@ export function OrcaProvider({ children }) {
     retryGeo,
     manualLocation,
     setManualLocation,
+    safeRoute,
+    fetchSafeRouteFor,
   };
 
   return <OrcaContext.Provider value={value}>{children}</OrcaContext.Provider>;

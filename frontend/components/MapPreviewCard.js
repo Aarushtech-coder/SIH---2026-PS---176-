@@ -11,7 +11,7 @@ import { useOrca } from "@/lib/store";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
-const PREVIEW_VISIBILITY = { pfz: true, hazard: true, routes: false, boundary: false };
+const PREVIEW_VISIBILITY = { pfz: true, routes: true, boundary: false };
 
 // Resolves the current map center so the preview overlay click can carry the
 // same position over to Map Explorer via query params.
@@ -24,7 +24,7 @@ function resolveCenter(mapData, manualLocation, geoLocation) {
 
 export default function MapPreviewCard({ mapData }) {
   const { t } = useLocale();
-  const { geoLocation, manualLocation } = useOrca();
+  const { geoLocation, manualLocation, safeRoute } = useOrca();
   const router = useRouter();
 
   const activeLoc = manualLocation || geoLocation;
@@ -49,6 +49,7 @@ export default function MapPreviewCard({ mapData }) {
           interactive={false}
           gpsCenter={gpsCenter}
           onPreviewClick={handlePreviewClick}
+          safeRoute={safeRoute}
         />
       </div>
       <div className={styles.footer}>

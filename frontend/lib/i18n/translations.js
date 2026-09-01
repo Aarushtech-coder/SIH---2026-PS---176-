@@ -128,6 +128,7 @@ const en = {
   "map.landingCentre": "Landing centre",
   "map.currentPosition": "Current position",
   "map.nearestBoundaryPoint": "Nearest IMBL point",
+  "map.safeRoute": "Suggested safe route to nearest PFZ",
   "map.noData": "No map data for this query.",
 
   "saved.subtitle": "Your question history with ORCA",
@@ -302,6 +303,7 @@ const hi = {
   "map.landingCentre": "लैंडिंग केंद्र",
   "map.currentPosition": "वर्तमान स्थिति",
   "map.nearestBoundaryPoint": "निकटतम आईएमबीएल बिंदु",
+  "map.safeRoute": "निकटतम PFZ का सुझाया गया सुरक्षित मार्ग",
   "map.noData": "इस प्रश्न के लिए कोई मानचित्र डेटा नहीं।",
 
   "saved.subtitle": "ORCA के साथ आपका प्रश्न इतिहास",
@@ -476,6 +478,7 @@ const ta = {
   "map.landingCentre": "தரையிறங்கும் மையம்",
   "map.currentPosition": "தற்போதைய இருப்பிடம்",
   "map.nearestBoundaryPoint": "அருகிலுள்ள IMBL புள்ளி",
+  "map.safeRoute": "அருகிலுள்ள PFZக்கு பரிந்துரைக்கப்பட்ட பாதுகாப்பான பாதை",
   "map.noData": "இந்த வினவலுக்கு வரைபடத் தரவு இல்லை.",
 
   "saved.subtitle": "ORCA உடனான உங்கள் கேள்வி வரலாறு",
@@ -650,6 +653,7 @@ const te = {
   "map.landingCentre": "ల్యాండింగ్ కేంద్రం",
   "map.currentPosition": "ప్రస్తుత స్థానం",
   "map.nearestBoundaryPoint": "సమీప IMBL పాయింట్",
+  "map.safeRoute": "సమీప PFZకి సూచించిన సురక్షిత మార్గం",
   "map.noData": "ఈ ప్రశ్న కోసం మ్యాప్ డేటా లేదు.",
 
   "saved.subtitle": "ORCAతో మీ ప్రశ్న చరిత్ర",

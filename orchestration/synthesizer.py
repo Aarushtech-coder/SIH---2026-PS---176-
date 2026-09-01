@@ -320,14 +320,28 @@ def run(state: TurnState) -> TurnState:
                         }
                     )
                 if pfz_zones:
+                    # Center on the user's own position, same as every other
+                    # intent (geofence_check, safe_to_sail, weather_tide) --
+                    # this used to center on the *nearest zone* instead,
+                    # which made the map visibly jump away from the user's
+                    # actual location on every "nearest fishing zone"
+                    # question. Zones still render as markers either way;
+                    # only the camera target and current_position changes.
+                    loc = state.user_location
                     map_data = {
                         "pfz_zones": pfz_zones,
-                        "center": {
-                            "lat": pfz_zones[0]["lat"],
-                            "lon": pfz_zones[0]["lon"],
-                        },
                         "zoom": 9,
                     }
+                    if loc and "lat" in loc and "lon" in loc:
+                        map_data["current_position"] = {"lat": loc["lat"], "lon": loc["lon"]}
+                        map_data["center"] = {"lat": loc["lat"], "lon": loc["lon"]}
+                    else:
+                        # No known user location -- fall back to the old
+                        # behavior rather than showing no center at all.
+                        map_data["center"] = {
+                            "lat": pfz_zones[0]["lat"],
+                            "lon": pfz_zones[0]["lon"],
+                        }
         elif state.intent == "geofence_check":
             geo_out = state.agent_outputs.get("geospatial_agent")
             if geo_out is not None:
