@@ -27,7 +27,7 @@ def _load_sessions_from_disk() -> None:
         raw = json.loads(_SESSION_CACHE_FILE.read_text(encoding="utf-8"))
         for session_id, session_dict in raw.items():
             _sessions[session_id] = Session(**session_dict)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -46,7 +46,7 @@ def _save_sessions_to_disk() -> None:
         _SESSION_CACHE_FILE.write_text(
             json.dumps(serializable, default=str), encoding="utf-8"
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
 

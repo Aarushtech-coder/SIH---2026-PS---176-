@@ -24,7 +24,8 @@ import re
 import ssl
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 import certifi
 
@@ -111,9 +112,17 @@ def _parse_feature_info_value(text: str) -> float:
     match = re.search(r"Value:\s*(-?[\d.]+(?:[eE][+-]?\d+)?)", text)
     if not match:
         # Check for "none" or NaN which means no data at this point
-        if "none" in text.lower() or "nan" in text.lower():
-            raise ValueError("No data at this location (land point or out of bounds)")
-        raise ValueError(f"Could not parse 'Value:' from response: {text[:200]}")
+        if (
+            "none" in text.lower()
+            or "nan" in text.lower()
+            or "latitude" in text.lower()
+        ):
+            raise ValueError(
+                "No oceanic data at this location (land point or out of bounds)"
+            )
+
+        snippet = text.strip()[:60].replace("\n", " ")
+        raise ValueError(f"Could not parse 'Value:' from response: {snippet}")
 
     value = float(match.group(1))
     if math.isnan(value) or math.isinf(value):
@@ -194,7 +203,7 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         Exception: If both today's and yesterday's files fail, or if
                    any layer query fails.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Try today first, then yesterday (file may not be published yet today)
     dates_to_try = [
@@ -215,9 +224,28 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 
         try:
             data = {}
-            for layer_name, contract_field, conversion in LAYER_MAP:
-                raw_value = _get_feature_info(base_url, layer_name, lat, lon, time_str)
-                data[contract_field] = round(raw_value * conversion, 2)
+            match_failed = False
+
+            with ThreadPoolExecutor(max_workers=len(LAYER_MAP) + 1) as executor:
+                future_to_layer = {
+                    executor.submit(
+                        _get_feature_info, base_url, layer_name, lat, lon, time_str
+                    ): (contract_field, conversion)
+                    for layer_name, contract_field, conversion in LAYER_MAP
+                }
+                cyclone_future = executor.submit(_check_cyclone_alert, lat, lon)
+
+                for future in as_completed(future_to_layer):
+                    contract_field, conversion = future_to_layer[future]
+                    raw_value = future.result()
+                    data[contract_field] = round(raw_value * conversion, 2)
+
+                try:
+                    alert, match_failed = cyclone_future.result()
+                    data["cyclone_alert"] = alert
+                except Exception as cyc_err:  # noqa: BLE001
+                    logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
+                    data["cyclone_alert"] = None
 
             # Forecast valid until: end of the THREDDS time range (7 days out)
             forecast_end = (now + timedelta(days=7)).replace(
@@ -225,18 +253,9 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
             )
             data["forecast_valid_until"] = forecast_end.isoformat()
 
-            # Cyclone alert — separate source, best-effort
-            match_failed = False
-            try:
-                alert, match_failed = _check_cyclone_alert(lat=lat, lon=lon)
-                data["cyclone_alert"] = alert
-            except Exception as cyc_err:
-                logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
-                data["cyclone_alert"] = None
-
             return data, match_failed
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             last_error = e
             logger.warning(
                 f"THREDDS fetch failed for date {date_str}: {e}. Trying next date..."
@@ -252,7 +271,9 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> tuple[str | None, bool]:
+def _check_cyclone_alert(
+    lat: float | None = None, lon: float | None = None
+) -> tuple[str | None, bool]:
     """Check RSMC New Delhi for active cyclone bulletins and localized basin alerts.
 
     Fetches the RSMC homepage and scopes specifically to official advisory
@@ -277,13 +298,13 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
             req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
         ) as resp:
             html = resp.read().decode("utf-8", errors="replace")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"RSMC homepage request failed: {e}")
         return None, False
 
     # Extract official advisory product sections (e.g. Cyclone Warnings/Advisory, TCAC, Graphics)
     warning_section_match = re.search(
-        r'(?:<h3>\s*Cyclone Warnings/Advisory\s*</h3>|<h3>\s*Cyclone Warning Graphics\s*</h3>|Tropical Weather Outlook).*?(?:</ul>|</div>)',
+        r"(?:<h3>\s*Cyclone Warnings/Advisory\s*</h3>|<h3>\s*Cyclone Warning Graphics\s*</h3>|Tropical Weather Outlook).*?(?:</ul>|</div>)",
         html,
         re.DOTALL | re.IGNORECASE,
     )
@@ -291,31 +312,68 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
     candidate_links = []
     if warning_section_match:
         section_html = warning_section_match.group(0)
-        candidate_links.extend(re.findall(r'href=["\']([^"\']*\.pdf)["\']', section_html, re.IGNORECASE))
+        candidate_links.extend(
+            re.findall(r'href=["\']([^"\']*\.pdf)["\']', section_html, re.IGNORECASE)
+        )
 
     # Also capture warning-specific upload links while skipping static site assets
     raw_pdf_links = re.findall(r'href=["\']([^"\']*\.pdf)["\']', html, re.IGNORECASE)
     for link in raw_pdf_links:
         link_lower = link.lower()
-        if any(w in link_lower for w in ["uploads/archive", "uploads/uploads", "national_bulletin", "tropical_weather_outlook", "cyclone"]):
+        if any(
+            w in link_lower
+            for w in [
+                "uploads/archive",
+                "uploads/uploads",
+                "national_bulletin",
+                "tropical_weather_outlook",
+                "cyclone",
+            ]
+        ):
             candidate_links.append(link)
 
     candidate_links = list(set(candidate_links))
 
     # Filter out static documentation, climatology atlases, and guidelines
     ignore_patterns = [
-        "dm_act", "ndma", "policy", "plan", "faq", "terminology", "damage",
-        "evolution", "tc-names", "brochure", "survey", "climatology", "atlas",
-        "metadata", "incois_mhvm", "duty_charter", "rainfall.pdf", "gale_wind.pdf",
-        "storm_surge.pdf", "ships_cert", "souvenir", "annual_veri", "fdp_implementation",
-        "press_release", "gmdss", "sat_bltn", "satbltn", "splbltn", "extended_range",
+        "dm_act",
+        "ndma",
+        "policy",
+        "plan",
+        "faq",
+        "terminology",
+        "damage",
+        "evolution",
+        "tc-names",
+        "brochure",
+        "survey",
+        "climatology",
+        "atlas",
+        "metadata",
+        "incois_mhvm",
+        "duty_charter",
+        "rainfall.pdf",
+        "gale_wind.pdf",
+        "storm_surge.pdf",
+        "ships_cert",
+        "souvenir",
+        "annual_veri",
+        "fdp_implementation",
+        "press_release",
+        "gmdss",
+        "sat_bltn",
+        "satbltn",
+        "splbltn",
+        "extended_range",
     ]
 
     active_bulletins = []
     for link in candidate_links:
         link_lower = link.lower()
         # Skip standard "No Cyclone" placeholders
-        if any(nc in link_lower for nc in ["no_cyclone", "no cyclone", "no_fdp", "no fdp"]):
+        if any(
+            nc in link_lower for nc in ["no_cyclone", "no cyclone", "no_fdp", "no fdp"]
+        ):
             continue
         if any(ign in link_lower for ign in ignore_patterns):
             continue
@@ -337,7 +395,12 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
         "super cyclonic storm",
     ]
     orange_phrases = ["severe cyclonic storm", "cyclonic storm"]
-    yellow_phrases = ["deep depression", "depression", "cyclonic circulation", "low pressure area"]
+    yellow_phrases = [
+        "deep depression",
+        "depression",
+        "cyclonic circulation",
+        "low pressure area",
+    ]
 
     has_red = False
     has_orange = False
@@ -348,8 +411,33 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
         name = bulletin.lower()
 
         # Check if bulletin specifies a particular basin
-        is_bob = any(k in name for k in ["bob", "bay_of_bengal", "bay of bengal", "east_coast", "odisha", "andhra", "tamil_nadu", "bengal"])
-        is_as = any(k in name for k in ["as", "arb", "arabian_sea", "arabian sea", "west_coast", "gujarat", "maharashtra", "goa", "kerala"])
+        is_bob = any(
+            k in name
+            for k in [
+                "bob",
+                "bay_of_bengal",
+                "bay of bengal",
+                "east_coast",
+                "odisha",
+                "andhra",
+                "tamil_nadu",
+                "bengal",
+            ]
+        )
+        is_as = any(
+            k in name
+            for k in [
+                "as",
+                "arb",
+                "arabian_sea",
+                "arabian sea",
+                "west_coast",
+                "gujarat",
+                "maharashtra",
+                "goa",
+                "kerala",
+            ]
+        )
 
         # If user basin is known and bulletin is explicitly for a different basin, skip it
         if user_basin == "bay_of_bengal" and is_as and not is_bob:
@@ -380,7 +468,15 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
         # If an official emergency warning product (e.g. National Bulletin / Special Bulletin)
         # is active in the user's basin but specific severity keywords couldn't be parsed
         has_warning_bulletin = any(
-            any(w in b.lower() for w in ["national_bulletin", "special_tropical", "cyclone_warning", "hourly_bulletin"])
+            any(
+                w in b.lower()
+                for w in [
+                    "national_bulletin",
+                    "special_tropical",
+                    "cyclone_warning",
+                    "hourly_bulletin",
+                ]
+            )
             for b in active_bulletins
         )
         if has_warning_bulletin:
@@ -403,7 +499,7 @@ def _build_mock_data() -> dict:
     Returns:
         A dict matching the weather_agent contract schema exactly.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     return {
         "wind_speed_kmh": 15.0,
         "wind_direction_deg": 225.0,
@@ -473,7 +569,7 @@ def run(state: TurnState) -> TurnState:
                 " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
             )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Weather fetch failed: {e}. Falling back to MOCK data.")
         data = _build_mock_data()
         source = "MOCK"
@@ -481,7 +577,7 @@ def run(state: TurnState) -> TurnState:
         output_summary = f"mock weather data — reason: {e}"
 
     # Write output (runs on BOTH success and fallback paths)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     state.agent_outputs["weather_agent"] = AgentOutput(
         data=data,

@@ -76,7 +76,7 @@ def _answer_general_ocean_query(raw_query: str, language: str = "en") -> str:
             ],
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"SYNTHESIZER LLM CALL FAILED: {e}")
         return (
             "I can share general ocean information, but I couldn't generate a full "
@@ -115,7 +115,7 @@ def _translate_static_message(message: str, language: str) -> str:
             ],
         )
         return response.choices[0].message.content.strip()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return message
 
 
@@ -281,7 +281,7 @@ def run(state: TurnState) -> TurnState:
                 timestamp=datetime.now(tz=timezone.utc).isoformat(),
             )
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         state.final_answer = "Unable to generate a response at this time."
         state.citations = []
         state.disclaimer = None
@@ -368,7 +368,7 @@ def run(state: TurnState) -> TurnState:
                 }
 
         state.map_data = map_data
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         # Never let map_data errors break the response; leave map_data as None,
         # but log so a silent failure here is never invisible again.
         import traceback

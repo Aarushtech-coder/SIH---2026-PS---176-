@@ -174,7 +174,7 @@ def run(state: TurnState) -> TurnState:
             else "MOCK"
         )
         output_summary = f"verdict={verdict}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         # Resilience rule (CONTRACTS.md): never raise.
         data = {
             "verdict": "unknown",

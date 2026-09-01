@@ -77,11 +77,19 @@ def _load_boundary():
     return _boundary_cache
 
 
-def _classify_zone(distance_nm: float, inside: bool) -> str:
+def _classify_zone(distance_nm: float, inside: bool, lat: float, lon: float) -> str:
     if inside:
         return "safe"
     if distance_nm <= 5.0:
         return "approaching"
+
+    # Heuristic for Indian Inland vs Offshore
+    if 8.0 < lat < 37.0 and 68.0 < lon < 97.0:
+        if lat < 20.0 and lon < 72.8 or lat < 21.0 and lon > 87.0 or lat < 15.0 and lon > 80.0:  # Arabian Sea
+            pass
+        else:
+            return "inland"
+
     return "crossed"
 
 
@@ -130,12 +138,12 @@ def run(state: TurnState) -> TurnState:
             "distance_to_imbl_nm": round(distance_nm, 2),
             "current_position": {"lat": lat, "lon": lon},
             "nearest_boundary_point": {"lat": nearest_lat, "lon": nearest_lon},
-            "zone_status": _classify_zone(distance_nm, inside),
+            "zone_status": _classify_zone(distance_nm, inside, lat, lon),
         }
         source = "India-EEZ-IMBL-MarineRegions"
         action_detail = f"Computed geofence: {data['zone_status']}, {data['distance_to_imbl_nm']} nm from IMBL"
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Geospatial fetch failed: {e}. Falling back to MOCK data.")
         data = _mock_output()
         source = "MOCK"
@@ -184,7 +192,7 @@ def check_route_safety(start_lat, start_lon, end_lat, end_lon, num_points=20):
                 )
 
         return True, None, _haversine_nm(start_lat, start_lon, end_lat, end_lon)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Fallback: report safe with no distance, rather than crash the caller
         return True, None, 0
 
@@ -219,5 +227,5 @@ def distance_to_imbl(lat, lon):
         point = _Point(lon, lat)
         nearest_on_boundary, _ = _nearest_points(boundary_outline, point)
         return _haversine_nm(lat, lon, nearest_on_boundary.y, nearest_on_boundary.x)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 999.0

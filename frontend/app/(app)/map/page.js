@@ -26,6 +26,7 @@ const ZONE_STATUS_KEYS = {
   safe: "zoneStatus.safe",
   approaching: "zoneStatus.approaching",
   crossed: "zoneStatus.crossed",
+  inland: "Zone Status: Inland / Land",
 };
 
 function InfoTile({ label, value }) {
@@ -335,7 +336,7 @@ useEffect(() => {
               label={t("map.withinImbl")}
               value={
                 geo
-                  ? geo.zone_status === "crossed"
+                  ? (geo.zone_status === "crossed" || geo.zone_status === "inland")
                     ? t("common.no")
                     : t("common.yes")
                   : t("common.yes")

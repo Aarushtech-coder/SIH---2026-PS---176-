@@ -20,7 +20,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
@@ -185,7 +185,7 @@ def _derive_advisory_validity(features: list) -> tuple:
     Returns:
         (advisory_valid_from, advisory_valid_until) as ISO 8601 strings.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if features:
         julian_day = features[0].get("properties", {}).get("Julian_day")
@@ -282,7 +282,7 @@ def _build_mock_data() -> dict:
     Returns:
         A dict matching the marine_data_agent contract schema exactly.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     return {
         "pfz_zones": [
             {
@@ -356,7 +356,7 @@ def run(state: TurnState) -> TurnState:
             f"advisory valid {valid_from} to {valid_until}"
         )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         # ── Fallback: never crash the pipeline ──
         logger.warning(f"PFZ fetch/transform failed: {e}. Falling back to MOCK data.")
         data = _build_mock_data()
@@ -365,7 +365,7 @@ def run(state: TurnState) -> TurnState:
         output_summary = f"mock PFZ zones — reason: {e}"
 
     # ── Write output (runs on BOTH success and fallback paths) ──
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     state.agent_outputs["marine_data_agent"] = AgentOutput(
         data=data,

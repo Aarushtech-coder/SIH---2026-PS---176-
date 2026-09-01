@@ -86,9 +86,9 @@ def _geocode_location(location_name: str) -> dict | None:
     """Hit OSM Nominatim to convert location name to lat/lon. Cached in-process
     since the same location (e.g. "Chennai") is often asked repeatedly in a
     demo session, and Nominatim's usage policy caps requests at ~1/sec."""
-    import urllib.request
-    import urllib.parse
     import json
+    import urllib.parse
+    import urllib.request
 
     cache_key = location_name.strip().lower()
     if cache_key in _geocode_cache:
@@ -104,7 +104,7 @@ def _geocode_location(location_name: str) -> dict | None:
                 if data:
                     lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
                     result = {"lat": lat, "lon": lon}
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     _geocode_cache[cache_key] = result
@@ -325,7 +325,7 @@ def resolve_context(raw_query: str, previous_turn: TurnState | None) -> dict:
             "query_date": None,
         }
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         # --- Fallback: keyword heuristic for follow-up detection. ---
         # If recognisable follow-up signal words are present, enrich the query
         # with previous context in plain text so the planner can still classify it.
@@ -357,7 +357,7 @@ def run(state: TurnState) -> TurnState:
 
     try:
         intent, language, location_name = _classify_with_llm(classify_text)
-    except Exception:
+    except Exception:  # noqa: BLE001
         method = "fallback"
         intent, language, location_name = _classify_with_fallback(classify_text)
 

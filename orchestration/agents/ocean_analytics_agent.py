@@ -111,7 +111,7 @@ def _fetch_live(lat: float, lon: float) -> dict:
             if chl_val == chl_val:
                 break
             raise ValueError("no valid non-cloud-masked chlorophyll pixels")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             last_error = exc
     if chl_val is None:
         # SST is still valid live data even when cloud cover or a rotated
@@ -132,7 +132,7 @@ def _fetch_live(lat: float, lon: float) -> dict:
             with urllib.request.urlopen(mld_url, timeout=20) as response:
                 mld_payload = json.loads(response.read().decode("utf-8"))
             mld = float(mld_payload[MLD_JSON_KEY])
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             mld_error = str(exc)
 
     return {
@@ -177,7 +177,7 @@ def run(state: TurnState) -> TurnState:
             f"SST {data['sst_celsius']}C (live), "
             f"chlorophyll {data['chlorophyll_mg_per_m3']} mg/m3"
         )
-    except Exception as live_exc:
+    except Exception as live_exc:  # noqa: BLE001
         try:
             data = _fetch_from_local_file(lat, lon)
             source = "MOCK"  # per CONTRACTS.md: not the real live source, must be labeled honestly
@@ -186,7 +186,7 @@ def run(state: TurnState) -> TurnState:
                 f"{data['chlorophyll_mg_per_m3']} mg/m3 (local fallback — "
                 f"live fetch failed: {live_exc})"
             )
-        except Exception as fallback_exc:
+        except Exception as fallback_exc:  # noqa: BLE001
             # Resilience rule (CONTRACTS.md): never raise, even if both paths fail.
             data = {
                 "sst_celsius": 0,
