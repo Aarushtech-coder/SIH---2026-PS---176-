@@ -23,40 +23,31 @@ Install:
     pip install openai-whisper gTTS
 """
 
-import whisper
 from gtts import gTTS
 
 from orchestration.graph import run_query
 
-WHISPER_MODEL_SIZE = "medium"  # use "small" for faster demo-day inference if CPU-only
-
-_whisper_model = None
-
-
-class SpeechToText:
-    """Thin class wrapper around the module-level speech_to_text() function.
-
-    Instantiated lazily in main.py so the Whisper model is only loaded on the
-    first /voice-query request, not at startup.
-    """
-
-    def transcribe(self, audio_path: str):
-        """Returns (whisper_lang_code, transcribed_text)."""
-        return speech_to_text(audio_path)
-
-
-def _load_whisper():
-    global _whisper_model
-    if _whisper_model is None:
-        _whisper_model = whisper.load_model(WHISPER_MODEL_SIZE)
-    return _whisper_model
-
 
 def speech_to_text(audio_path: str):
-    """Returns (whisper_lang_code, transcribed_text). Language is auto-detected."""
-    model = _load_whisper()
-    result = model.transcribe(audio_path, task="transcribe")
-    return result["language"], result["text"].strip()
+    """Returns (whisper_lang_code, transcribed_text). Language is auto-detected using Groq."""
+    import os
+    from groq import Groq
+
+    client = Groq(api_key=os.environ.get("GROQ_API_KEY"), timeout=15.0)
+    with open(audio_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            file=(os.path.basename(audio_path), f.read()),
+            model="whisper-large-v3",
+            response_format="verbose_json",
+        )
+
+    # result is an object with language and text attributes
+    detected_lang = getattr(result, "language", "en")
+
+    # Some Groq/Whisper versions return full language names (e.g., "english"),
+    # but the pipeline expects 2-letter codes. We rely on the language detection in planner.py
+    # if it's not a 2-letter code, but we'll return what we get.
+    return detected_lang, result.text.strip()
 
 
 def text_to_speech(text: str, lang_code: str, output_path: str = "response.mp3") -> str:
@@ -66,7 +57,9 @@ def text_to_speech(text: str, lang_code: str, output_path: str = "response.mp3")
     return output_path
 
 
-def run_localized_query(audio_path: str, session_id: str = "default", turn_id: str | None = None) -> dict:
+def run_localized_query(
+    audio_path: str, session_id: str = "default", turn_id: str | None = None
+) -> dict:
     """
     Full voice-in -> voice-out pipeline, wrapping the real graph.run_query()
     unchanged. Returns every intermediate step for easy debugging/demo.
@@ -99,6 +92,7 @@ def run_localized_query(audio_path: str, session_id: str = "default", turn_id: s
 
 class SpeechToText:
     """Wrapper class for backwards compatibility with main.py's voice endpoint."""
+
     def transcribe(self, audio_path: str):
         return speech_to_text(audio_path)
 
