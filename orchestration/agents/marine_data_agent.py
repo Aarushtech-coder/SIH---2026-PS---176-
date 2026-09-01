@@ -37,7 +37,7 @@ PFZ_WFS_URL = (
     "&typeName=PFZ_Automation:pfzlines&outputFormat=application/json"
 )
 
-REQUEST_TIMEOUT_SECONDS = 15
+REQUEST_TIMEOUT_SECONDS = 5
 
 # Standard PFZ advisory validity window in days. INCOIS PFZ advisories are
 # restricted to a 24-hour (1 day) validity window because ocean features
@@ -358,7 +358,7 @@ def run(state: TurnState) -> TurnState:
 
     except Exception as e:  # noqa: BLE001
         # ── Fallback: never crash the pipeline ──
-        logger.warning(f"PFZ fetch/transform failed: {e}. Falling back to MOCK data.")
+        logger.debug(f"PFZ fetch/transform failed: {e}. Falling back to MOCK data.")
         data = _build_mock_data()
         source = "MOCK"
         action = "fetched mock PFZ data (fallback)"

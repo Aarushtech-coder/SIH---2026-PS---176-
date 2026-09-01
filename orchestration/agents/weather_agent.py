@@ -44,7 +44,7 @@ THREDDS_WMS_BASE = (
 
 RSMC_URL = "https://rsmcnewdelhi.imd.gov.in"
 
-REQUEST_TIMEOUT_SECONDS = 15
+REQUEST_TIMEOUT_SECONDS = 5
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 # Default query point when user_location is not provided.
@@ -226,7 +226,8 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
             data = {}
             match_failed = False
 
-            with ThreadPoolExecutor(max_workers=len(LAYER_MAP) + 1) as executor:
+            executor = ThreadPoolExecutor(max_workers=len(LAYER_MAP) + 1)
+            try:
                 future_to_layer = {
                     executor.submit(
                         _get_feature_info, base_url, layer_name, lat, lon, time_str
@@ -244,8 +245,10 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
                     alert, match_failed = cyclone_future.result()
                     data["cyclone_alert"] = alert
                 except Exception as cyc_err:  # noqa: BLE001
-                    logger.warning(f"Cyclone check failed: {cyc_err}. Setting to None.")
+                    logger.debug(f"Cyclone check failed: {cyc_err}. Setting to None.")
                     data["cyclone_alert"] = None
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
 
             # Forecast valid until: end of the THREDDS time range (7 days out)
             forecast_end = (now + timedelta(days=7)).replace(
@@ -257,7 +260,7 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
 
         except Exception as e:  # noqa: BLE001
             last_error = e
-            logger.warning(
+            logger.debug(
                 f"THREDDS fetch failed for date {date_str}: {e}. Trying next date..."
             )
             continue
@@ -570,7 +573,7 @@ def run(state: TurnState) -> TurnState:
             )
 
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Weather fetch failed: {e}. Falling back to MOCK data.")
+        logger.debug(f"Weather fetch failed: {e}. Falling back to MOCK data.")
         data = _build_mock_data()
         source = "MOCK"
         action = "fetched mock weather data (fallback)"
