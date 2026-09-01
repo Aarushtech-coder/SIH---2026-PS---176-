@@ -25,49 +25,64 @@ def _correlation(first: list[float], second: list[float]) -> float | None:
 
 
 def run(state: TurnState) -> TurnState:
-    observations = getattr(state, "catch_history", None) or []
-    valid_observations = []
-    for item in observations:
-        try:
-            valid_observations.append(
-                {
-                    "catch_kg": float(item["catch_kg"]),
-                    "chlorophyll_mg_per_m3": float(item["chlorophyll_mg_per_m3"]),
-                    "sst_celsius": (
-                        float(item["sst_celsius"])
-                        if item.get("sst_celsius") is not None
-                        else None
-                    ),
-                }
-            )
-        except (KeyError, TypeError, ValueError):
-            continue
+    """Productivity agent entry point. Never raises per CONTRACTS.md resilience rule."""
+    try:
+        observations = getattr(state, "catch_history", None) or []
+        valid_observations = []
+        for item in observations:
+            try:
+                valid_observations.append(
+                    {
+                        "catch_kg": float(item["catch_kg"]),
+                        "chlorophyll_mg_per_m3": float(item["chlorophyll_mg_per_m3"]),
+                        "sst_celsius": (
+                            float(item["sst_celsius"])
+                            if item.get("sst_celsius") is not None
+                            else None
+                        ),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
 
-    catches = [item["catch_kg"] for item in valid_observations]
-    chlorophyll = [item["chlorophyll_mg_per_m3"] for item in valid_observations]
-    sst_items = [item for item in valid_observations if item["sst_celsius"] is not None]
+        catches = [item["catch_kg"] for item in valid_observations]
+        chlorophyll = [item["chlorophyll_mg_per_m3"] for item in valid_observations]
+        sst_items = [item for item in valid_observations if item["sst_celsius"] is not None]
 
-    data = {
-        "observations_used": len(valid_observations),
-        "catch_chlorophyll_correlation": _correlation(catches, chlorophyll),
-        "catch_sst_correlation": (
-            _correlation(
-                [item["catch_kg"] for item in sst_items],
-                [item["sst_celsius"] for item in sst_items],
-            )
-            if len(sst_items) == len(valid_observations)
-            else None
-        ),
-        "interpretation": (
-            "Correlation is descriptive only; it does not establish causation."
-            if valid_observations
-            else "No catch-history observations supplied."
-        ),
-    }
+        data = {
+            "observations_used": len(valid_observations),
+            "catch_chlorophyll_correlation": _correlation(catches, chlorophyll),
+            "catch_sst_correlation": (
+                _correlation(
+                    [item["catch_kg"] for item in sst_items],
+                    [item["sst_celsius"] for item in sst_items],
+                )
+                if len(sst_items) == len(valid_observations)
+                else None
+            ),
+            "interpretation": (
+                "Correlation is descriptive only; it does not establish causation."
+                if valid_observations
+                else "No catch-history observations supplied."
+            ),
+        }
+        source = "DERIVED-FROM-PROVIDED-CATCH-HISTORY"
+        output_summary = f"used {len(valid_observations)} catch-history observations"
+    except Exception as e:
+        # Resilience rule (CONTRACTS.md): never raise, fall back to mock
+        data = {
+            "observations_used": 0,
+            "catch_chlorophyll_correlation": None,
+            "catch_sst_correlation": None,
+            "interpretation": f"Correlation analysis failed: {e}",
+        }
+        source = "MOCK"
+        output_summary = f"Fell back to MOCK data due to: {e}"
+
     now = datetime.now(tz=timezone.utc).isoformat()
     state.agent_outputs["productivity_agent"] = AgentOutput(
         data=data,
-        source="DERIVED-FROM-PROVIDED-CATCH-HISTORY",
+        source=source,
         timestamp=now,
     )
     state.trace.append(
@@ -75,7 +90,7 @@ def run(state: TurnState) -> TurnState:
             agent="productivity_agent",
             action="correlated supplied catch history with ocean indicators",
             input_summary=state.resolved_query,
-            output_summary=f"used {len(valid_observations)} catch-history observations",
+            output_summary=output_summary,
             timestamp=now,
         )
     )
