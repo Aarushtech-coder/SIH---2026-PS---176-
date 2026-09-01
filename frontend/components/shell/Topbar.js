@@ -1,6 +1,9 @@
+"use client";
+
 import styles from "./Topbar.module.css";
 import { IconPin, IconSun } from "@/components/icons/Icons";
 import { useOrca } from "@/lib/store";
+import { useLocationLabel } from "@/lib/useLocationLabel";
 
 export function Topbar({ title, subtitle, right }) {
   return (
@@ -15,20 +18,24 @@ export function Topbar({ title, subtitle, right }) {
 }
 
 export function LocationChip() {
-  const { geoLocation, geoStatus } = useOrca();
+  const { dashboardSnapshot } = useOrca();
+  const { label: locationLabel } = useLocationLabel();
 
-  const locationLabel =
-    geoStatus === "granted" && geoLocation
-      ? `${geoLocation.latitude.toFixed(4)}°, ${geoLocation.longitude.toFixed(4)}°`
-      : "Chennai, India";
+  // Sea surface temperature -- the only real temperature the backend
+  // provides (there's no air-temperature field anywhere in the contract).
+  const sst = dashboardSnapshot.ocean?.sst_celsius;
 
   return (
     <div className={styles.locationChip}>
       <IconPin size={15} />
       {locationLabel}
-      <span className={styles.divider} />
-      <IconSun size={15} />
-      31°C
+      {typeof sst === "number" && (
+        <>
+          <span className={styles.divider} />
+          <IconSun size={15} />
+          {sst.toFixed(1)}°C SST
+        </>
+      )}
     </div>
   );
 }

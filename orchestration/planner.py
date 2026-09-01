@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 
 from orchestration.state import TraceEntry, TurnState
 
-
 load_dotenv()
 
 
@@ -22,8 +21,8 @@ INTENTS = {
 AGENTS_BY_INTENT = {
     "nearest_pfz": ["marine_data_agent", "geospatial_agent"],
     "safe_to_sail": ["weather_agent", "ocean_analytics_agent", "risk_agent"],
-    "weather_tide": ["weather_agent"],
-    "geofence_check": ["geospatial_agent", "risk_agent"],
+    "weather_tide": ["weather_agent", "ocean_analytics_agent"],
+    "geofence_check": ["geospatial_agent"],
     # No specialist agents needed for these two; synthesizer handles them directly.
     "general_ocean_info": [],
     "out_of_scope": [],
@@ -80,6 +79,38 @@ _FOLLOWUP_SIGNALS = [
 ]
 
 
+_geocode_cache: dict[str, dict | None] = {}
+
+
+def _geocode_location(location_name: str) -> dict | None:
+    """Hit OSM Nominatim to convert location name to lat/lon. Cached in-process
+    since the same location (e.g. "Chennai") is often asked repeatedly in a
+    demo session, and Nominatim's usage policy caps requests at ~1/sec."""
+    import urllib.request
+    import urllib.parse
+    import json
+
+    cache_key = location_name.strip().lower()
+    if cache_key in _geocode_cache:
+        return _geocode_cache[cache_key]
+
+    url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_name)}&format=json&limit=1&addressdetails=0"
+    req = urllib.request.Request(url, headers={"User-Agent": "ORCA-PlannerAgent/1.0"})
+    result = None
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data:
+                    lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
+                    result = {"lat": lat, "lon": lon}
+    except Exception:
+        pass
+
+    _geocode_cache[cache_key] = result
+    return result
+
+
 def _detect_language_from_unicode(text: str) -> str:
     """
     Guess the dominant script/language from Unicode code-point ranges.
@@ -115,10 +146,10 @@ def _detect_language_from_unicode(text: str) -> str:
     return best_lang
 
 
-def _classify_with_llm(query_text: str) -> tuple[str, str]:
+def _classify_with_llm(query_text: str) -> tuple[str, str, str | None]:
     """
     Send query_text to Groq for intent classification AND language detection.
-    Returns (intent, language) where language is an ISO 639-1 two-letter code.
+    Returns (intent, language, location_name) where language is an ISO 639-1 code.
     """
     api_key = os.environ["GROQ_API_KEY"]
 
@@ -135,8 +166,9 @@ def _classify_with_llm(query_text: str) -> tuple[str, str]:
             {
                 "role": "system",
                 "content": (
-                    "Classify the user's query into exactly one of these six intents "
-                    "AND detect the language of the raw query text.\n\n"
+                    "Classify the user's query into exactly one of these six intents, "
+                    "detect the language of the raw query text, AND extract any specific "
+                    "location mentioned (city, region, place).\n\n"
                     "Intents:\n"
                     "- nearest_pfz: user wants to find the nearest Potential Fishing Zone\n"
                     "- safe_to_sail: user asks whether conditions are safe for sailing/fishing\n"
@@ -152,7 +184,7 @@ def _classify_with_llm(query_text: str) -> tuple[str, str]:
                     'text itself (e.g. a Hindi query → "hi", Tamil → "ta", '
                     'English → "en"). Use ISO 639-1 two-letter codes.\n\n'
                     "Return ONLY strict JSON with no markdown, no extra text:\n"
-                    '{"intent": "<one of the six intents>", "language": "<ISO 639-1 code>"}'
+                    '{"intent": "<one of the six intents>", "language": "<ISO 639-1 code>", "location_name": "<extracted location name or null if none>"}'
                 ),
             },
             {"role": "user", "content": query_text},
@@ -181,14 +213,22 @@ def _classify_with_llm(query_text: str) -> tuple[str, str]:
     raw_lang = str(parsed.get("language", "")).strip().lower()
     language = raw_lang if (len(raw_lang) == 2 and raw_lang.isalpha()) else "en"
 
-    return intent, language
+    location_name = parsed.get("location_name")
+    if (
+        not isinstance(location_name, str)
+        or not location_name.strip()
+        or location_name.lower() == "null"
+    ):
+        location_name = None
+
+    return intent, language, location_name
 
 
-def _classify_with_fallback(query_text: str) -> tuple[str, str]:
+def _classify_with_fallback(query_text: str) -> tuple[str, str, str | None]:
     """
     Keyword-based intent classification used when the LLM is unavailable.
     Also guesses the query language via Unicode character ranges.
-    Returns (intent, language).
+    Returns (intent, language, location_name).
     """
     query = query_text.lower()
 
@@ -218,7 +258,7 @@ def _classify_with_fallback(query_text: str) -> tuple[str, str]:
     # --- Language detection via Unicode script ranges ---
     language = _detect_language_from_unicode(query_text)
 
-    return intent, language
+    return intent, language, None
 
 
 def resolve_context(raw_query: str, previous_turn: TurnState | None) -> dict:
@@ -316,10 +356,16 @@ def run(state: TurnState) -> TurnState:
     classify_text = state.resolved_query if state.resolved_query else state.raw_query
 
     try:
-        intent, language = _classify_with_llm(classify_text)
+        intent, language, location_name = _classify_with_llm(classify_text)
     except Exception:
         method = "fallback"
-        intent, language = _classify_with_fallback(classify_text)
+        intent, language, location_name = _classify_with_fallback(classify_text)
+
+    # If the user asked about a specific location, geocode it and override default
+    if location_name:
+        geocoded = _geocode_location(location_name)
+        if geocoded:
+            state.user_location = geocoded
 
     required_agents = AGENTS_BY_INTENT[intent]
     state.intent = intent

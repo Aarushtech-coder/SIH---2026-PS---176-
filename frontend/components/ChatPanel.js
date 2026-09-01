@@ -6,6 +6,7 @@ import AnswerCard from "./AnswerCard";
 import { IconSend, IconMic, IconAlert } from "@/components/icons/Icons";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { useMounted } from "@/lib/useMounted";
 
 const SUGGESTION_KEYS = ["suggestion.safe", "suggestion.nearestZone", "suggestion.boundary"];
 
@@ -18,18 +19,26 @@ export default function ChatPanel({ messages, onSend, onSendVoice, loading }) {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const listRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const playedAudios = useRef(new Set());
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant" && lastMsg.turnState?.audio_b64) {
+      if (!playedAudios.current.has(lastMsg.id)) {
+        playedAudios.current.add(lastMsg.id);
+        const audio = new Audio(`data:audio/mp3;base64,${lastMsg.turnState.audio_b64}`);
+        audio.play().catch(e => console.error("Audio playback failed:", e));
+      }
+    }
+  }, [messages]);
 
   function submit(e) {
     e.preventDefault();

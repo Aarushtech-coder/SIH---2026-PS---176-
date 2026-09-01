@@ -39,7 +39,7 @@ def test_weather_tide_uses_fallback(monkeypatch):
     state = planner.run(_state("What's the tide near Chennai?"))
 
     assert state.intent == "weather_tide"
-    assert state.required_agents == ["weather_agent"]
+    assert state.required_agents == ["weather_agent", "ocean_analytics_agent"]
 
 
 def test_geofence_check_uses_fallback(monkeypatch):
@@ -48,7 +48,7 @@ def test_geofence_check_uses_fallback(monkeypatch):
     state = planner.run(_state("Am I close to the maritime boundary?"))
 
     assert state.intent == "geofence_check"
-    assert state.required_agents == ["geospatial_agent", "risk_agent"]
+    assert state.required_agents == ["geospatial_agent"]
 
 
 def test_general_ocean_info_uses_fallback(monkeypatch):

@@ -1,15 +1,17 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Topbar, LocationChip } from "@/components/shell/Topbar";
+import DashboardCharts from "@/components/DashboardCharts";
 import Panel from "@/components/ui/Panel";
 import StatCard from "@/components/ui/StatCard";
 import { Badge, VerdictBadge } from "@/components/ui/Badge";
 import { useOrca } from "@/lib/store";
 import { useLocale } from "@/lib/i18n/LocaleContext";
 import { useMounted } from "@/lib/useMounted";
-import { OVERVIEW, ALERTS, DATA_SOURCES } from "@/lib/mockData";
-import { timeAgo } from "@/lib/format";
+import { DATA_SOURCES } from "@/lib/mockData";
+import { timeAgo, degToCompass } from "@/lib/format";
 import {
   IconWave,
   IconWind,
@@ -38,6 +40,15 @@ const INTENT_KEYS = {
   weather_tide: "intent.weather_tide",
 };
 
+// Same default fallback used across the app (store.js, Topbar, MAP_LAYERS) --
+// passed explicitly below so "Back to my location" works on the first click
+// even though clearing manualLocation and re-fetching are two separate,
+// asynchronously-batched state updates.
+const CHENNAI_DEFAULT = { latitude: 13.0827, longitude: 80.2707 };
+
+const VERDICT_TONE = { safe: "good", caution: "warning", unsafe: "critical" };
+const SEA_CONDITION_KEY = { safe: "seaCondition.calm", caution: "seaCondition.moderate", unsafe: "seaCondition.rough" };
+
 function greetingKey() {
   const h = new Date().getHours();
   if (h < 12) return "greeting.morning";
@@ -46,9 +57,17 @@ function greetingKey() {
 }
 
 export default function DashboardPage() {
-  const { savedQueries } = useOrca();
+  const { savedQueries, dashboardSnapshot, refreshDashboardSnapshot, geoLocation, setManualLocation } = useOrca();
   const { t } = useLocale();
   const mounted = useMounted();
+
+  useEffect(() => {
+    if (dashboardSnapshot.status === "idle") refreshDashboardSnapshot();
+  }, [dashboardSnapshot.status, refreshDashboardSnapshot]);
+
+  const { status, weather, risk, ocean, nearestPfzKm, fetchedAt, location, source } = dashboardSnapshot;
+  const isLoading = status === "idle" || status === "loading";
+  const dash = "--";
 
   return (
     <>
@@ -61,33 +80,94 @@ export default function DashboardPage() {
       <div className={styles.content}>
         <Panel
           title={t("dashboard.overviewTitle")}
-          action={<span>{t("dashboard.updated")} {mounted ? timeAgo(OVERVIEW.lastUpdated, t) : ""}</span>}
+          action={
+            <span>
+              {status === "ready" && mounted
+                ? `${t("dashboard.updated")} ${timeAgo(fetchedAt, t)}`
+                : isLoading
+                  ? t("chat.transcribing")
+                  : ""}
+            </span>
+          }
         >
-          <div className={styles.statGrid}>
-            <StatCard icon={IconWave} label={t("stat.seaCondition")} value={OVERVIEW.seaCondition} tone="accent" />
-            <StatCard icon={IconWave} label={t("stat.waveHeight")} value={OVERVIEW.waveHeightRange} tone="accent" />
-            <StatCard
-              icon={IconWind}
-              label={t("stat.wind")}
-              value={`${OVERVIEW.windSpeedKmh} km/h`}
-              sub={OVERVIEW.windDirection}
-              tone="accent"
-            />
-            <StatCard
-              icon={IconFish}
-              label={t("stat.fishingZone")}
-              value={`${OVERVIEW.nearestPfzDistanceKm} km`}
-              sub={t("stat.nearestPfz")}
-              tone="good"
-            />
-            <StatCard icon={IconShield} label={t("stat.riskLevel")} value="Moderate" tone="warning" />
-          </div>
+          {status === "error" ? (
+            <div className={styles.loadError}>
+              <span>{t("dashboard.loadError")}</span>
+              <button type="button" onClick={refreshDashboardSnapshot} className={styles.retryButton}>
+                {t("dashboard.retry")}
+              </button>
+            </div>
+          ) : (
+            <div className={styles.statGrid}>
+              <StatCard
+                icon={IconWave}
+                label={t("stat.seaCondition")}
+                value={risk ? t(SEA_CONDITION_KEY[risk.verdict] ?? "seaCondition.moderate") : dash}
+                tone="accent"
+              />
+              <StatCard
+                icon={IconWave}
+                label={t("stat.waveHeight")}
+                value={weather ? `${weather.wave_height_m} m` : dash}
+                tone="accent"
+              />
+              <StatCard
+                icon={IconWind}
+                label={t("stat.wind")}
+                value={weather ? `${Math.round(weather.wind_speed_kmh)} km/h` : dash}
+                sub={weather ? degToCompass(weather.wind_direction_deg) : null}
+                tone="accent"
+              />
+              <StatCard
+                icon={IconFish}
+                label={t("stat.fishingZone")}
+                value={nearestPfzKm != null ? `${Math.round(nearestPfzKm)} km` : dash}
+                sub={t("stat.nearestPfz")}
+                tone="good"
+              />
+              <StatCard
+                icon={IconShield}
+                label={t("stat.riskLevel")}
+                value={risk ? t(`verdict.${risk.verdict}`) : dash}
+                tone={risk ? (VERDICT_TONE[risk.verdict] ?? "accent") : "accent"}
+              />
+              <StatCard
+                icon={IconWave}
+                label={t("stat.seaTemp")}
+                value={typeof ocean?.sst_celsius === "number" ? `${ocean.sst_celsius.toFixed(1)}°C` : dash}
+                tone="accent"
+              />
+            </div>
+          )}
+          {status === "ready" && source === "default" && (
+            <p className={styles.locationNote}>{t("dashboard.usingDefaultLocation")}</p>
+          )}
+          {status === "ready" && (source === "pin" || source === "manual") && location && (
+            <p className={styles.locationNote}>
+              {t("dashboard.usingPinnedLocation", {
+                lat: location.latitude.toFixed(2),
+                lon: location.longitude.toFixed(2),
+              })}{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setManualLocation(null);
+                  refreshDashboardSnapshot(geoLocation || CHENNAI_DEFAULT);
+                }}
+                className={styles.inlineLink}
+              >
+                {t("dashboard.backToMyLocation")}
+              </button>
+            </p>
+          )}
         </Panel>
 
-        {ALERTS.length > 0 && (
+        <DashboardCharts dashboardSnapshot={dashboardSnapshot} />
+
+        {weather?.cyclone_alert && (
           <div className={styles.alertBanner}>
             <IconAlert size={17} />
-            <span>{ALERTS[0].message}</span>
+            <span>{t("dashboard.cycloneAlert", { level: weather.cyclone_alert })}</span>
           </div>
         )}
 
