@@ -87,8 +87,8 @@ def _fetch_sst(lat: float, lon: float) -> tuple[float | None, str]:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             rows = payload.get("table", {}).get("rows", [])
-            if rows and len(rows[0]) >= 4 and rows[0][3] is not None:
-                sst = float(rows[0][3])
+            if rows and len(rows[0]) >= 5 and rows[0][-1] is not None:
+                sst = float(rows[0][-1])
                 return round(sst, 2), "NOAA-OISST"
     except Exception as exc:
         logger.debug(f"NOAA OISST live fetch failed: {exc}. Trying Open-Meteo fallback...")
@@ -125,8 +125,8 @@ def _fetch_chlorophyll(lat: float, lon: float) -> tuple[float | None, str]:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             rows = payload.get("table", {}).get("rows", [])
-            if rows and len(rows[0]) >= 3 and rows[0][2] is not None:
-                chl = float(rows[0][2])
+            if rows and len(rows[0]) >= 4 and rows[0][-1] is not None:
+                chl = float(rows[0][-1])
                 return round(chl, 3), "NOAA-CoastWatch"
     except Exception as exc:
         logger.debug(f"NOAA Chlorophyll fetch failed: {exc}. Trying INCOIS Oceansat-2...")
@@ -138,8 +138,8 @@ def _fetch_chlorophyll(lat: float, lon: float) -> tuple[float | None, str]:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             rows = payload.get("table", {}).get("rows", [])
-            if rows and len(rows[0]) >= 3 and rows[0][2] is not None:
-                chl = float(rows[0][2])
+            if rows and len(rows[0]) >= 4 and rows[0][-1] is not None:
+                chl = float(rows[0][-1])
                 return round(chl, 3), "INCOIS-Oceansat2"
     except Exception as exc:
         logger.debug(f"INCOIS Oceansat-2 Chlorophyll fetch failed: {exc}")

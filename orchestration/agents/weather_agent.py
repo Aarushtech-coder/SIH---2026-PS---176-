@@ -196,10 +196,11 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
     """
     now = datetime.utcnow()
 
-    # Try today first, then yesterday (file may not be published yet today)
+    # Try today first, then yesterday, then day before yesterday
     dates_to_try = [
         now.strftime("%Y%m%d"),
         (now - timedelta(days=1)).strftime("%Y%m%d"),
+        (now - timedelta(days=2)).strftime("%Y%m%d"),
     ]
 
     last_error = None
