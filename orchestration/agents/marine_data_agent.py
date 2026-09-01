@@ -272,23 +272,35 @@ def _fetch_pfz_geojson() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _build_mock_data() -> dict:
+def _build_mock_data(
+    user_lat: float | None = None, user_lon: float | None = None
+) -> dict:
     """Return a contract-compliant mock response for fallback scenarios.
 
-    Provides one sample PFZ zone off the Goa coast so the Synthesizer and
-    frontend always have something to render, even when the real API is down.
+    Dynamically generates a PFZ zone near the requested location instead of a static Goa point.
+    Moves the point slightly offshore (~5km) for realism.
+
     The source field in AgentOutput will be set to "MOCK" by the caller.
 
     Returns:
         A dict matching the marine_data_agent contract schema exactly.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Use user location or default to Goa
+    base_lat = user_lat if user_lat is not None else 15.35
+    base_lon = user_lon if user_lon is not None else 73.80
+
+    # Simple dynamic offset (approx 5km south-west depending on coast)
+    dynamic_lat = round(base_lat - 0.05, 4)
+    dynamic_lon = round(base_lon - 0.05, 4)
+
     return {
         "pfz_zones": [
             {
                 "zone_id": "PFZ-MOCK-001",
-                "latitude": 15.35,
-                "longitude": 73.80,
+                "latitude": dynamic_lat,
+                "longitude": dynamic_lon,
                 "distance_from_coast_km": 15.0,
                 "direction_from_landing_centre": "SW",
                 "depth_range_m": "50-70",
@@ -359,7 +371,11 @@ def run(state: TurnState) -> TurnState:
     except Exception as e:  # noqa: BLE001
         # ── Fallback: never crash the pipeline ──
         logger.debug(f"PFZ fetch/transform failed: {e}. Falling back to MOCK data.")
-        data = _build_mock_data()
+
+        user_lat = state.user_location.get("lat") if state.user_location else None
+        user_lon = state.user_location.get("lon") if state.user_location else None
+
+        data = _build_mock_data(user_lat, user_lon)
         source = "MOCK"
         action = "fetched mock PFZ data (fallback)"
         output_summary = f"mock PFZ zones — reason: {e}"

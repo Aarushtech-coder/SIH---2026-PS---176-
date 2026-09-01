@@ -19,12 +19,10 @@ On any failure, the agent falls back to mock data so the pipeline never crashes.
 """
 
 import logging
-import math
 import re
 import ssl
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import certifi
@@ -38,9 +36,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-THREDDS_WMS_BASE = (
-    "https://incois.gov.in/thredds/wms/osf/ww3/rsmc_combined_ww3_{date}.nc"
-)
+OPEN_METEO_WIND_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=wind_speed_10m,wind_direction_10m"
+OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lon}&current=wave_height,wave_direction,wave_period,swell_wave_height"
 
 RSMC_URL = "https://rsmcnewdelhi.imd.gov.in"
 
@@ -52,143 +49,16 @@ SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 DEFAULT_LAT = 15.0
 DEFAULT_LON = 73.0
 
-# THREDDS layer names mapped to contract field names.
-# Each entry: (layer_name, contract_field, unit_conversion_factor)
-# The WW3 model outputs wind in m/s; contract needs km/h → multiply by 3.6.
-LAYER_MAP = [
-    ("UWND:VWND-mag", "wind_speed_kmh", 3.6),  # m/s → km/h
-    ("UWND:VWND-dir", "wind_direction_deg", 1.0),  # degrees, no conversion
-    ("HS", "wave_height_m", 1.0),  # meters
-    ("MWD", "wave_direction_deg", 1.0),  # degrees
-    ("T02", "wave_period_sec", 1.0),  # seconds
-    ("PHS01", "swell_height_m", 1.0),  # meters (swell partition)
-]
-
 
 # ---------------------------------------------------------------------------
 # THREDDS helpers
 # ---------------------------------------------------------------------------
 
 
-def _build_thredds_wms_url(date_str: str) -> str:
-    """Construct the THREDDS WMS base URL for a given date.
-
-    The INCOIS THREDDS server publishes one NetCDF file per day named
-    rsmc_combined_ww3_YYYYMMDD.nc. This function formats the URL template
-    with the given date string.
-
-    Args:
-        date_str: Date in YYYYMMDD format (e.g. "20260823").
-
-    Returns:
-        The full THREDDS WMS base URL for that day's file.
-    """
-    return THREDDS_WMS_BASE.format(date=date_str)
-
-
-def _parse_feature_info_value(text: str) -> float:
-    """Extract the numeric value from a THREDDS WMS GetFeatureInfo response.
-
-    The response format is plain text like:
-        Longitude: 73.0
-        Latitude:  15.0
-
-        Layer: HS
-        ID:    HS
-        Time:  2026-08-24T06:00:00.000Z
-        Value: 2.5251142978668213
-
-    We extract the number after "Value:".
-
-    Args:
-        text: The raw plain text response body.
-
-    Returns:
-        The parsed float value.
-
-    Raises:
-        ValueError: If "Value:" line is not found or can't be parsed.
-    """
-    match = re.search(r"Value:\s*(-?[\d.]+(?:[eE][+-]?\d+)?)", text)
-    if not match:
-        # Check for "none" or NaN which means no data at this point
-        if (
-            "none" in text.lower()
-            or "nan" in text.lower()
-            or "latitude" in text.lower()
-        ):
-            raise ValueError(
-                "No oceanic data at this location (land point or out of bounds)"
-            )
-
-        snippet = text.strip()[:60].replace("\n", " ")
-        raise ValueError(f"Could not parse 'Value:' from response: {snippet}")
-
-    value = float(match.group(1))
-    if math.isnan(value) or math.isinf(value):
-        raise ValueError(f"Got NaN/Inf value from THREDDS: {value}")
-
-    return value
-
-
-def _get_feature_info(
-    base_url: str, layer: str, lat: float, lon: float, time_str: str
-) -> float:
-    """Query one THREDDS WMS layer for a single point and time.
-
-    Uses the WMS GetFeatureInfo request to get the value at the center
-    pixel of an 11x11 grid around the given lat/lon.
-
-    Args:
-        base_url: The THREDDS WMS base URL (for a specific day's file).
-        layer:    WMS layer name (e.g. "HS", "UWND:VWND-mag").
-        lat:      Latitude of the query point.
-        lon:      Longitude of the query point.
-        time_str: ISO 8601 timestamp for the forecast time step.
-
-    Returns:
-        The numeric value at that point.
-
-    Raises:
-        Various exceptions on network failure, timeout, or parse error.
-    """
-    # Build a small bounding box (1 degree) centered on the point
-    bbox = f"{lon - 0.5},{lat - 0.5},{lon + 0.5},{lat + 0.5}"
-
-    params = (
-        f"?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo"
-        f"&LAYERS={layer}&QUERY_LAYERS={layer}"
-        f"&BBOX={bbox}&SRS=CRS:84"
-        f"&WIDTH=11&HEIGHT=11&X=5&Y=5"
-        f"&INFO_FORMAT=text/plain"
-        f"&TIME={time_str}"
-    )
-
-    url = base_url + params
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "text/plain",
-            "User-Agent": "ORCA-WeatherAgent/1.0",
-        },
-    )
-
-    with urllib.request.urlopen(
-        req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-    ) as resp:
-        if resp.status != 200:
-            raise ConnectionError(f"THREDDS returned HTTP {resp.status} for {layer}")
-        raw = resp.read().decode("utf-8")
-
-    return _parse_feature_info_value(raw)
-
-
 def _fetch_all_weather_data(lat: float, lon: float) -> dict:
-    """Fetch all weather fields from INCOIS THREDDS for a given location.
+    """Fetch all weather fields from Open-Meteo for a given location.
 
-    Tries today's NetCDF file first; if it fails (e.g. not published yet),
-    falls back to yesterday's file. Queries each layer in LAYER_MAP and
-    assembles the contract-compliant data dict.
+    Queries both the standard forecast API (for wind) and the marine API (for waves).
 
     Args:
         lat: Latitude of the query point.
@@ -200,73 +70,73 @@ def _fetch_all_weather_data(lat: float, lon: float) -> dict:
         keyword_match_failed: True if a cyclone bulletin is active but did not match keywords.
 
     Raises:
-        Exception: If both today's and yesterday's files fail, or if
-                   any layer query fails.
+        Exception: If any API query fails.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    data = {}
 
-    # Try today first, then yesterday (file may not be published yet today)
-    dates_to_try = [
-        now.strftime("%Y%m%d"),
-        (now - timedelta(days=1)).strftime("%Y%m%d"),
-    ]
+    import json
 
-    last_error = None
-    for date_str in dates_to_try:
-        base_url = _build_thredds_wms_url(date_str)
+    # 1. Fetch Wind Data
+    wind_req = urllib.request.Request(
+        OPEN_METEO_WIND_URL.format(lat=lat, lon=lon),
+        headers={"Accept": "application/json", "User-Agent": "ORCA-WeatherAgent/1.0"},
+    )
+    with urllib.request.urlopen(
+        wind_req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+    ) as resp:
+        if resp.status != 200:
+            raise ConnectionError(f"Open-Meteo wind API returned HTTP {resp.status}")
+        wind_json = json.loads(resp.read().decode("utf-8"))
 
-        # Use the nearest 3-hour time step from now
-        # THREDDS time range: every 3 hours (PT3H)
-        hour_rounded = (now.hour // 3) * 3
-        time_str = now.replace(
-            hour=hour_rounded, minute=0, second=0, microsecond=0
-        ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    current_wind = wind_json.get("current", {})
+    data["wind_speed_kmh"] = round(float(current_wind.get("wind_speed_10m", 0.0)), 2)
+    data["wind_direction_deg"] = round(
+        float(current_wind.get("wind_direction_10m", 0.0)), 2
+    )
 
-        try:
-            data = {}
-            match_failed = False
+    # 2. Fetch Marine Data
+    marine_req = urllib.request.Request(
+        OPEN_METEO_MARINE_URL.format(lat=lat, lon=lon),
+        headers={"Accept": "application/json", "User-Agent": "ORCA-WeatherAgent/1.0"},
+    )
+    with urllib.request.urlopen(
+        marine_req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+    ) as resp:
+        if resp.status != 200:
+            raise ConnectionError(f"Open-Meteo marine API returned HTTP {resp.status}")
+        marine_json = json.loads(resp.read().decode("utf-8"))
 
-            executor = ThreadPoolExecutor(max_workers=len(LAYER_MAP) + 1)
-            try:
-                future_to_layer = {
-                    executor.submit(
-                        _get_feature_info, base_url, layer_name, lat, lon, time_str
-                    ): (contract_field, conversion)
-                    for layer_name, contract_field, conversion in LAYER_MAP
-                }
-                cyclone_future = executor.submit(_check_cyclone_alert, lat, lon)
+    current_marine = marine_json.get("current", {})
+    data["wave_height_m"] = round(
+        float(current_marine.get("wave_height", 0.0) or 0.0), 2
+    )
+    data["wave_direction_deg"] = round(
+        float(current_marine.get("wave_direction", 0.0) or 0.0), 2
+    )
+    data["wave_period_sec"] = round(
+        float(current_marine.get("wave_period", 0.0) or 0.0), 2
+    )
+    data["swell_height_m"] = round(
+        float(current_marine.get("swell_wave_height", 0.0) or 0.0), 2
+    )
 
-                for future in as_completed(future_to_layer):
-                    contract_field, conversion = future_to_layer[future]
-                    raw_value = future.result()
-                    data[contract_field] = round(raw_value * conversion, 2)
+    # 3. Check Cyclone Data
+    try:
+        alert, match_failed = _check_cyclone_alert(lat, lon)
+        data["cyclone_alert"] = alert
+    except Exception as cyc_err:
+        logger.debug(f"Cyclone check failed: {cyc_err}. Setting to None.")
+        data["cyclone_alert"] = None
+        match_failed = False
 
-                try:
-                    alert, match_failed = cyclone_future.result()
-                    data["cyclone_alert"] = alert
-                except Exception as cyc_err:  # noqa: BLE001
-                    logger.debug(f"Cyclone check failed: {cyc_err}. Setting to None.")
-                    data["cyclone_alert"] = None
-            finally:
-                executor.shutdown(wait=False, cancel_futures=True)
+    # Forecast valid until: Open-Meteo provides hourly, but we set a standard 7-day future
+    forecast_end = (now + timedelta(days=7)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    data["forecast_valid_until"] = forecast_end.isoformat()
 
-            # Forecast valid until: end of the THREDDS time range (7 days out)
-            forecast_end = (now + timedelta(days=7)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            data["forecast_valid_until"] = forecast_end.isoformat()
-
-            return data, match_failed
-
-        except Exception as e:  # noqa: BLE001
-            last_error = e
-            logger.debug(
-                f"THREDDS fetch failed for date {date_str}: {e}. Trying next date..."
-            )
-            continue
-
-    # Both dates failed
-    raise RuntimeError(f"All THREDDS date attempts failed. Last error: {last_error}")
+    return data, match_failed
 
 
 # ---------------------------------------------------------------------------
@@ -556,11 +426,11 @@ def run(state: TurnState) -> TurnState:
 
     try:
         data, match_failed = _fetch_all_weather_data(lat, lon)
-        source = "INCOIS-OSF"
+        source = "OPEN-METEO"
         if match_failed:
             action = "cyclone alert: keyword match failed, defaulted to Yellow"
         else:
-            action = "fetched live weather data from INCOIS THREDDS WMS"
+            action = "fetched live weather data from Open-Meteo API"
         output_summary = (
             f"wind={data['wind_speed_kmh']}km/h, "
             f"waves={data['wave_height_m']}m, "
