@@ -15,3 +15,6 @@ transformers
 sentencepiece
 torch
 torchaudio
+xarray
+netCDF4
+certifi
