@@ -336,7 +336,7 @@ useEffect(() => {
               label={t("map.withinImbl")}
               value={
                 geo
-                  ? (geo.zone_status === "crossed" || geo.zone_status === "inland")
+                  ? geo.zone_status === "crossed"
                     ? t("common.no")
                     : t("common.yes")
                   : t("common.yes")
