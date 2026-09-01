@@ -19,11 +19,11 @@ no data for that day/location), this agent falls back to the local sample
 NetCDF file rather than raising — per the resilience rule in CONTRACTS.md.
 """
 
-from datetime import datetime, timedelta, timezone
 import json
 import os
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 from orchestration.state import AgentOutput, TraceEntry, TurnState
 
@@ -34,7 +34,11 @@ from orchestration.state import AgentOutput, TraceEntry, TurnState
 # NOAA rotates sensors/products).
 CHLOROPHYLL_SOURCES = [
     # NOAA CoastWatch legacy global MODIS chlorophyll product.
-    ("https://coastwatch.pfeg.noaa.gov/erddap/griddap", "erdMH1chlamday", "chlorophyll"),
+    (
+        "https://coastwatch.pfeg.noaa.gov/erddap/griddap",
+        "erdMH1chlamday",
+        "chlorophyll",
+    ),
     # NOAA CoastWatch Sentinel-3 product, retained for deployments where it is available.
     ("https://coastwatch.noaa.gov/erddap/griddap", "noaacwS3AOLCIchlaDaily", "chlor_a"),
 ]
@@ -46,7 +50,7 @@ LOCAL_FALLBACK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "sample_data", "sample_sst_chl.nc"
 )
 
-DEFAULT_LAT = 13.08   # Chennai — used only if planner didn't resolve a location
+DEFAULT_LAT = 13.08  # Chennai — used only if planner didn't resolve a location
 DEFAULT_LON = 80.27
 MLD_URL_TEMPLATE = os.getenv("ORCA_MLD_URL_TEMPLATE", "")
 MLD_JSON_KEY = os.getenv("ORCA_MLD_JSON_KEY", "mixed_layer_depth_m")
@@ -66,11 +70,13 @@ def _fetch_live(lat: float, lon: float) -> dict:
     import xarray as xr
 
     _validate_coordinates(lat, lon)
-    marine_query = urllib.parse.urlencode({
-        "latitude": lat,
-        "longitude": lon,
-        "current": "sea_surface_temperature",
-    })
+    marine_query = urllib.parse.urlencode(
+        {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "sea_surface_temperature",
+        }
+    )
     request = urllib.request.Request(f"{MARINE_API_URL}?{marine_query}")
     with urllib.request.urlopen(request, timeout=15) as response:
         marine = json.loads(response.read().decode("utf-8"))
