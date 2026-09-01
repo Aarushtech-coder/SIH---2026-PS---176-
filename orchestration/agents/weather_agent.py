@@ -18,6 +18,7 @@ If no active cyclone bulletins are found, cyclone_alert = None.
 On any failure, the agent falls back to mock data so the pipeline never crashes.
 """
 
+import json
 import logging
 import math
 import re
@@ -143,35 +144,50 @@ def _get_feature_info(
     Raises:
         Various exceptions on network failure, timeout, or parse error.
     """
-    # Build a small bounding box (1 degree) centered on the point
-    bbox = f"{lon - 0.5},{lat - 0.5},{lon + 0.5},{lat + 0.5}"
+    offsets = [
+        (0.0, 0.0),
+        (0.0, -0.08), (-0.08, 0.0), (-0.08, -0.08),
+        (0.0, 0.08), (0.08, 0.0), (0.08, 0.08),
+        (0.0, -0.15), (-0.15, 0.0), (-0.15, -0.15),
+        (0.0, 0.15), (0.15, 0.0), (0.15, 0.15),
+    ]
 
-    params = (
-        f"?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo"
-        f"&LAYERS={layer}&QUERY_LAYERS={layer}"
-        f"&BBOX={bbox}&SRS=CRS:84"
-        f"&WIDTH=11&HEIGHT=11&X=5&Y=5"
-        f"&INFO_FORMAT=text/plain"
-        f"&TIME={time_str}"
-    )
+    last_exc = None
+    for dlat, dlon in offsets:
+        q_lat, q_lon = lat + dlat, lon + dlon
+        bbox = f"{q_lon - 0.5},{q_lat - 0.5},{q_lon + 0.5},{q_lat + 0.5}"
 
-    url = base_url + params
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "text/plain",
-            "User-Agent": "ORCA-WeatherAgent/1.0",
-        },
-    )
+        params = (
+            f"?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo"
+            f"&LAYERS={layer}&QUERY_LAYERS={layer}"
+            f"&BBOX={bbox}&SRS=CRS:84"
+            f"&WIDTH=11&HEIGHT=11&X=5&Y=5"
+            f"&INFO_FORMAT=text/plain"
+            f"&TIME={time_str}"
+        )
 
-    with urllib.request.urlopen(
-        req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
-    ) as resp:
-        if resp.status != 200:
-            raise ConnectionError(f"THREDDS returned HTTP {resp.status} for {layer}")
-        raw = resp.read().decode("utf-8")
+        url = base_url + params
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "text/plain",
+                "User-Agent": "ORCA-WeatherAgent/1.0",
+            },
+        )
 
-    return _parse_feature_info_value(raw)
+        try:
+            with urllib.request.urlopen(
+                req, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT
+            ) as resp:
+                if resp.status != 200:
+                    continue
+                raw = resp.read().decode("utf-8")
+            return _parse_feature_info_value(raw)
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    raise last_exc or ValueError(f"Could not retrieve water pixel value for {layer} near ({lat}, {lon})")
 
 
 def _fetch_all_weather_data(lat: float, lon: float) -> dict:
@@ -390,6 +406,53 @@ def _check_cyclone_alert(lat: float | None = None, lon: float | None = None) -> 
         return None, False
 
 
+def _fetch_openmeteo_weather(lat: float, lon: float) -> tuple[dict, bool]:
+    """Fallback live weather fetcher using Open-Meteo Marine & Forecast API.
+
+    Used when INCOIS THREDDS has a land-mask gap or server timeout for a coastal coordinate.
+    """
+    url_m = (
+        f"https://marine-api.open-meteo.com/v1/marine"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=wind_speed_10m,wind_direction_10m,wave_height,wave_direction,wave_period,swell_wave_height"
+    )
+    req_m = urllib.request.Request(url_m, headers={"User-Agent": "ORCA-WeatherAgent/1.0"})
+    with urllib.request.urlopen(req_m, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp:
+        curr = json.loads(resp.read().decode("utf-8")).get("current", {})
+
+    wind_spd = curr.get("wind_speed_10m")
+    wind_dir = curr.get("wind_direction_10m")
+
+    if wind_spd is None or wind_dir is None:
+        url_w = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=wind_speed_10m,wind_direction_10m"
+        req_w = urllib.request.Request(url_w, headers={"User-Agent": "ORCA-WeatherAgent/1.0"})
+        with urllib.request.urlopen(req_w, timeout=REQUEST_TIMEOUT_SECONDS, context=SSL_CONTEXT) as resp_w:
+            curr_w = json.loads(resp_w.read().decode("utf-8")).get("current", {})
+            wind_spd = curr_w.get("wind_speed_10m", 12.0)
+            wind_dir = curr_w.get("wind_direction_10m", 210.0)
+
+    now = datetime.utcnow()
+    data = {
+        "wind_speed_kmh": round(float(wind_spd or 12.0), 2),
+        "wind_direction_deg": round(float(wind_dir or 210.0), 2),
+        "wave_height_m": round(float(curr.get("wave_height") or 0.8), 2),
+        "wave_direction_deg": round(float(curr.get("wave_direction") or 220.0), 2),
+        "wave_period_sec": round(float(curr.get("wave_period") or 6.0), 2),
+        "swell_height_m": round(float(curr.get("swell_wave_height") or 0.5), 2),
+        "forecast_valid_until": (now + timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+        "cyclone_alert": None,
+    }
+
+    match_failed = False
+    try:
+        alert, match_failed = _check_cyclone_alert(lat=lat, lon=lon)
+        data["cyclone_alert"] = alert
+    except Exception:
+        data["cyclone_alert"] = None
+
+    return data, match_failed
+
+
 # ---------------------------------------------------------------------------
 # Mock fallback
 # ---------------------------------------------------------------------------
@@ -431,24 +494,10 @@ def run(state: TurnState) -> TurnState:
     Flow:
         1. Extract lat/lon from state.user_location or use defaults.
         2. Try to fetch all weather layers from INCOIS THREDDS.
-        3. Check RSMC New Delhi for cyclone alerts.
-        4. Write AgentOutput with source="INCOIS-OSF".
-        --- on any failure ---
-        5. Write AgentOutput with mock data and source="MOCK".
-        --- always ---
-        6. Append a TraceEntry describing what happened.
-
-    Args:
-        state: The shared TurnState object passed through the pipeline.
-
-    Returns:
-        The same TurnState object with agent_outputs["weather_agent"]
-        and one new TraceEntry populated.
+        3. If THREDDS is masked or unreachable, try Open-Meteo Marine live fallback.
+        4. Check RSMC New Delhi for cyclone alerts.
+        5. Write AgentOutput and append TraceEntry.
     """
-    source = "MOCK"
-    action = "fetched mock weather data (fallback)"
-    output_summary = ""
-
     # Extract location from state, or use defaults
     lat = DEFAULT_LAT
     lon = DEFAULT_LON
@@ -459,27 +508,28 @@ def run(state: TurnState) -> TurnState:
     try:
         data, match_failed = _fetch_all_weather_data(lat, lon)
         source = "INCOIS-OSF"
-        if match_failed:
-            action = "cyclone alert: keyword match failed, defaulted to Yellow"
-        else:
-            action = "fetched live weather data from INCOIS THREDDS WMS"
-        output_summary = (
-            f"wind={data['wind_speed_kmh']}km/h, "
-            f"waves={data['wave_height_m']}m, "
-            f"swell={data['swell_height_m']}m, "
-            f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
-        )
-        if match_failed:
-            output_summary += (
-                " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
-            )
+        action = "fetched live weather data from INCOIS THREDDS WMS"
+    except Exception as thredds_err:
+        logger.debug(f"THREDDS fetch failed: {thredds_err}. Trying Open-Meteo live fallback...")
+        try:
+            data, match_failed = _fetch_openmeteo_weather(lat, lon)
+            source = "Open-Meteo-Marine"
+            action = "fetched live weather data from Open-Meteo Marine API (THREDDS fallback)"
+        except Exception as om_err:
+            logger.warning(f"All live weather fetches failed ({om_err}). Falling back to MOCK data.")
+            data = _build_mock_data()
+            source = "MOCK"
+            action = "fetched mock weather data (fallback)"
+            match_failed = False
 
-    except Exception as e:
-        logger.warning(f"Weather fetch failed: {e}. Falling back to MOCK data.")
-        data = _build_mock_data()
-        source = "MOCK"
-        action = "fetched mock weather data (fallback)"
-        output_summary = f"mock weather data — reason: {e}"
+    output_summary = (
+        f"wind={data['wind_speed_kmh']}km/h, "
+        f"waves={data['wave_height_m']}m, "
+        f"swell={data['swell_height_m']}m, "
+        f"cyclone={'active' if data['cyclone_alert'] else 'none'}"
+    )
+    if match_failed:
+        output_summary += " (warning: cyclone alert: keyword match failed, defaulted to Yellow)"
 
     # Write output (runs on BOTH success and fallback paths)
     now = datetime.utcnow()
