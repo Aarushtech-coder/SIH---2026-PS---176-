@@ -6,7 +6,8 @@ import { SCENARIOS, classifyIntent } from "./mockData";
 // off and this function calls the real backend. TurnState shape (state.py)
 // stays identical either way.
 const USE_MOCK = false;
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const ALL_AGENT_NAMES = [
   "weather_agent",
