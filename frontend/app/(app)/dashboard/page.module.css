@@ -207,3 +207,13 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .content {
+    padding: 0 1rem 1.5rem;
+  }
+
+  .actionGrid {
+    grid-template-columns: 1fr;
+  }
+}

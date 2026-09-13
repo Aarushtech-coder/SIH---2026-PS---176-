@@ -1,6 +1,6 @@
 # ORCA — Ocean Response & Coastal Assistant
 
-**Smart India Hackathon 2026 · Problem Statement PS-176**
+**Smart India Hackathon 2026 · Problem Statement PS-176 · Theme: Space Technology**
 
 ORCA is a multilingual marine intelligence platform for Indian coastal communities and fishing crews. It combines a **LangGraph multi-agent orchestrator**, **live data from INCOIS and IMD**, and a **Next.js dashboard** so users can ask natural-language questions (text or voice), see PFZ advisories and weather on a map, check IMBL/EEZ geofence status, and get **IMD/INCOIS-aligned safety verdicts**—with transparent data sources and graceful fallbacks when APIs are unavailable.
 

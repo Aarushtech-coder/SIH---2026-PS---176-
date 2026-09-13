@@ -69,7 +69,7 @@ export default function SettingsPage() {
               </select>
             }
           />
-          <Row
+          {/* <Row
             label={t("settings.defaultLocation")}
             description={t("settings.defaultLocationDesc")}
             control={
@@ -79,9 +79,9 @@ export default function SettingsPage() {
                 onChange={(e) => set("defaultLocation", e.target.value)}
               />
             }
-          />
+          /> */}
           {/* GPS location status — non-blocking, collapses gracefully */}
-          <Row
+          {/* <Row
             label={t("settings.location")}
             description={locationStatusText()}
             control={
@@ -91,7 +91,7 @@ export default function SettingsPage() {
                 </button>
               ) : null
             }
-          />
+          /> */}
         </Panel>
 
         <Panel title={t("settings.notifications")}>

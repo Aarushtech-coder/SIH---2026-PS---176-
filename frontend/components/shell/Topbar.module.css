@@ -7,6 +7,30 @@
   flex-wrap: wrap;
 }
 
+.titleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.menuButton {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.menuButton:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 .title {
   font-size: 1.35rem;
   font-weight: 700;
@@ -44,4 +68,21 @@
   width: 1px;
   height: 12px;
   background: var(--border-strong);
+}
+
+@media (max-width: 880px) {
+  .menuButton {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 1.1rem 1rem 0.9rem;
+  }
+
+  .right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }

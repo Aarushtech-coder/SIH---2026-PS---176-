@@ -1,16 +1,29 @@
 "use client";
 
 import styles from "./Topbar.module.css";
-import { IconPin, IconSun } from "@/components/icons/Icons";
+import { IconPin, IconSun, IconMenu } from "@/components/icons/Icons";
 import { useOrca } from "@/lib/store";
 import { useLocationLabel } from "@/lib/useLocationLabel";
+import { useMobileNav } from "./MobileNavContext";
 
 export function Topbar({ title, subtitle, right }) {
+  const { toggle } = useMobileNav();
+
   return (
     <header className={styles.topbar}>
-      <div>
-        <h1 className={styles.title}>{title}</h1>
-        {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+      <div className={styles.titleRow}>
+        <button
+          type="button"
+          className={styles.menuButton}
+          onClick={toggle}
+          aria-label="Toggle navigation"
+        >
+          <IconMenu size={20} />
+        </button>
+        <div>
+          <h1 className={styles.title}>{title}</h1>
+          {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+        </div>
       </div>
       {right && <div className={styles.right}>{right}</div>}
     </header>

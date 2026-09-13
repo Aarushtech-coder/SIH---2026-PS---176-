@@ -5,88 +5,6 @@
   flex-direction: column;
 }
 
-.searchBox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  color: var(--text-muted);
-  min-width: 220px;
-}
-
-.searchBox input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 0.83rem;
-  color: var(--text);
-  flex: 1;
-}
-
-.searchWrapper {
-  position: relative;
-}
-
-.searchSpinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent-strong);
-  border-radius: 50%;
-  animation: searchSpin 0.6s linear infinite;
-}
-
-@keyframes searchSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.searchDropdown {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  right: 0;
-  width: 250px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: 2000;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.searchItem {
-  width: 100%;
-  text-align: left;
-  padding: 0.6rem 0.8rem;
-  font-size: 0.8rem;
-  color: var(--text);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.searchItem:last-child {
-  border-bottom: none;
-}
-
-.searchItem:hover {
-  background: var(--bg);
-}
-
-.searchEmpty {
-  padding: 0.8rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  text-align: center;
-}
-
 .fallbackBanner {
   background: #fef08a; /* Tailwind yellow-200 */
   color: #854d0e; /* Tailwind yellow-800 */
@@ -215,4 +133,24 @@
   font-weight: 600;
   color: var(--text);
   margin-top: 0.1rem;
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    padding: 0 1rem 0.9rem;
+  }
+
+  .mapWrap {
+    margin: 0 1rem;
+    min-height: 220px;
+  }
+
+  .footer {
+    padding: 1rem 1rem 1.5rem;
+  }
+
+  .infoPanel {
+    min-width: 0;
+    width: 100%;
+  }
 }

@@ -21,3 +21,9 @@
     height: auto;
   }
 }
+
+@media (max-width: 640px) {
+  .content {
+    padding: 0 1rem 1.5rem;
+  }
+}

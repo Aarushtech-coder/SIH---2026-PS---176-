@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { Topbar, LocationChip } from "@/components/shell/Topbar";
+import { LocationSearch } from "@/components/shell/LocationSearch";
 import DashboardCharts from "@/components/DashboardCharts";
 import Panel from "@/components/ui/Panel";
 import StatCard from "@/components/ui/StatCard";
@@ -74,7 +75,12 @@ export default function DashboardPage() {
       <Topbar
         title={t("nav.dashboard")}
         subtitle={`${t(greetingKey())}, ${t("brand.user")}`}
-        right={<LocationChip />}
+        right={
+          <>
+            <LocationSearch />
+            <LocationChip />
+          </>
+        }
       />
 
       <div className={styles.content}>

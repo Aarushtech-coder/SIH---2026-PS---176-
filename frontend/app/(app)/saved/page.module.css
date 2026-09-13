@@ -117,3 +117,15 @@
   color: var(--critical);
   background: var(--critical-soft);
 }
+
+@media (max-width: 640px) {
+  .content {
+    padding: 0 1rem 1.5rem;
+  }
+
+  .rowLink {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
