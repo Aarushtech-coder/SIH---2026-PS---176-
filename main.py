@@ -104,7 +104,7 @@ async def root():
     }
 
 
-@app.get("/health", summary="Health check")
+@app.api_route("/health", methods=["GET", "HEAD"], summary="Health check")
 async def health():
     """Simple liveness probe."""
     return {"status": "ok", "message": "ORCA orchestration API is running"}
